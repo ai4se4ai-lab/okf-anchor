@@ -1,0 +1,44 @@
+# Dependencies
+node_modules/
+.pnp.*
+.yarn/*
+
+# Env / secrets — never commit real values
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+secrets/
+
+# Build output
+.next/
+dist/
+build/
+out/
+coverage/
+
+# Test artifacts
+test-results/
+playwright-report/
+playwright/.cache/
+blob-report/
+
+# Prisma
+prisma/*.db
+prisma/*.db-journal
+
+# Local data volumes
+.data/
+tmp/
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# OS / editor
+.DS_Store
+.idea/
+*.swp
+.claude/*
