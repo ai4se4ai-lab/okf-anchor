@@ -1,0 +1,22 @@
+{
+  "name": "@okf-anchor/pipeline",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Publish and verification orchestration: archive extraction, the deterministic OKF pipeline, storage/signing/anchoring, and the transactional metadata write. Wraps @okf-anchor/okf-core with the provider and DB layers.",
+  "exports": { ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" } },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc -b",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@okf-anchor/db": "workspace:*",
+    "@okf-anchor/okf-core": "workspace:*",
+    "@okf-anchor/providers": "workspace:*",
+    "fflate": "^0.8.2",
+    "nanotar": "^0.2.0"
+  }
+}

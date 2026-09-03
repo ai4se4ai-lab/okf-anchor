@@ -1,0 +1,82 @@
+name: CI
+
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DATABASE_URL: postgresql://okf:okf_local_dev@localhost:5432/okf_anchor
+  REDIS_URL: redis://localhost:6379
+  STORAGE_PROVIDER: local
+  ANCHOR_PROVIDER: local
+  GRAPH_PROVIDER: local
+  SIGNER: local
+  OKF_DATA_DIR: ${{ github.workspace }}/.data/okf
+
+jobs:
+  lint-typecheck-unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @okf-anchor/db generate
+      - run: pnpm -r --workspace-concurrency=1 --filter "./packages/**" run build
+      - run: pnpm lint
+      - run: pnpm typecheck
+      - name: Unit tests (no DB)
+        run: |
+          pnpm --filter @okf-anchor/okf-core run test
+          pnpm --filter @okf-anchor/providers run test
+
+  integration-e2e:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16.10-alpine
+        env: { POSTGRES_USER: okf, POSTGRES_PASSWORD: okf_local_dev, POSTGRES_DB: okf_anchor }
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U okf" --health-interval 5s --health-timeout 5s --health-retries 20
+      redis:
+        image: redis:7.4-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping" --health-interval 5s --health-timeout 3s --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @okf-anchor/db generate
+      - run: pnpm -r --workspace-concurrency=1 --filter "./packages/**" run build
+      - name: Migrate
+        run: pnpm --filter @okf-anchor/db exec prisma migrate deploy
+      - name: Integration tests (pipeline against Postgres)
+        run: pnpm --filter @okf-anchor/pipeline run test
+      - name: Build app + worker
+        run: |
+          pnpm --filter @okf-anchor/workers run build
+          pnpm --filter @okf-anchor/web run build
+      - name: Playwright
+        run: |
+          pnpm --filter @okf-anchor/web exec playwright install --with-deps chromium
+          pnpm --filter @okf-anchor/db run seed
+          pnpm --filter @okf-anchor/web run test:e2e
+
+  security-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Semgrep
+        uses: returntocorp/semgrep-action@v1
+        with:
+          config: auto

@@ -1,0 +1,164 @@
+openapi: 3.1.0
+info:
+  title: OKF Anchor — server-to-server API
+  version: "0.1.0"
+  description: >
+    Authenticated publishing, retrieval, verification and querying of OKF v0.2
+    knowledge bundles. The blockchain is a trust and integrity anchor only — the
+    OKF bundle remains authoritative.
+servers:
+  - url: http://localhost:3000
+    description: local dev
+security:
+  - bearerAuth: []
+paths:
+  /api/v1/health:
+    get:
+      security: []
+      summary: Liveness + database check
+      responses:
+        "200": { description: OK }
+  /api/v1/bundles/validate:
+    post:
+      summary: Validate + hash a bundle without persisting or anchoring
+      requestBody:
+        required: true
+        content:
+          application/zip: { schema: { type: string, format: binary } }
+          application/gzip: { schema: { type: string, format: binary } }
+          multipart/form-data:
+            schema:
+              type: object
+              properties: { bundle: { type: string, format: binary } }
+      responses:
+        "200": { description: Validation result + hashes + manifest }
+        "401": { description: Unauthorized }
+        "422": { description: Not OKF v0.2 conformant }
+  /api/v1/bundles:
+    post:
+      summary: Publish a bundle and enqueue a mint
+      parameters:
+        - in: header
+          name: x-okf-asset-slug
+          schema: { type: string }
+        - in: header
+          name: x-okf-filename
+          schema: { type: string }
+        - in: header
+          name: Idempotency-Key
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/zip: { schema: { type: string, format: binary } }
+          application/gzip: { schema: { type: string, format: binary } }
+          multipart/form-data:
+            schema:
+              type: object
+              properties: { bundle: { type: string, format: binary } }
+      responses:
+        "202":
+          description: Mint job created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  jobId: { type: string }
+                  state: { type: string }
+                  statusUrl: { type: string }
+        "200": { description: Idempotent replay — existing job returned }
+        "401": { description: Unauthorized }
+        "429": { description: Rate limited }
+  /api/v1/mint-jobs/{id}:
+    get:
+      summary: Mint job status
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        "200": { description: Job state, and the asset once MINTED }
+        "404": { description: Not found }
+  /api/v1/assets/{id}:
+    get:
+      summary: Retrieve a published asset (hashes, CIDs, anchor, versions)
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        "200": { description: Asset summary }
+        "404": { description: Not found }
+  /api/v1/assets/verify:
+    post:
+      summary: Verify an asset — by id, or against an uploaded bundle
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                assetId: { type: string }
+                assetVersionId: { type: string }
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                assetId: { type: string }
+                bundle: { type: string, format: binary }
+      responses:
+        "200": { description: Six-check verification report }
+  /api/v1/query:
+    post:
+      summary: Read-only SPARQL over the derived knowledge graph
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [sparql]
+              properties:
+                sparql: { type: string }
+                assetVersionId: { type: string }
+      responses:
+        "200": { description: SPARQL results (bindings / boolean / quads) }
+        "400": { description: Query rejected (write form, SERVICE, parse error) }
+  /api/public/assets/{id}:
+    get:
+      security: []
+      summary: Public asset read
+      parameters: [{ in: path, name: id, required: true, schema: { type: string } }]
+      responses: { "200": { description: Asset summary }, "404": { description: Not found } }
+  /api/public/assets/{id}/verify:
+    get:
+      security: []
+      summary: Public independent verification
+      parameters: [{ in: path, name: id, required: true, schema: { type: string } }]
+      responses: { "200": { description: Verification report } }
+  /api/public/query:
+    post:
+      security: []
+      summary: Public read-only SPARQL (rate limited)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [sparql]
+              properties: { sparql: { type: string }, assetVersionId: { type: string } }
+      responses: { "200": { description: SPARQL results }, "429": { description: Rate limited } }
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: >
+        A build-server API token. Requests MAY also carry `X-OKF-Signature`
+        (Ed25519 over the raw body) verified against the build server's
+        registered public key.

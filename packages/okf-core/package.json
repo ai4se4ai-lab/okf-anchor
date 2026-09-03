@@ -1,0 +1,28 @@
+{
+  "name": "@okf-anchor/okf-core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "OKF v0.2 parsing, permissive validation, deterministic canonicalization, Merkle hashing, and RDF knowledge-graph derivation. No network, no filesystem writes, no code execution.",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc -b",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "n3": "^1.21.3",
+    "rdf-canonize": "^4.0.1",
+    "yaml": "^2.5.1"
+  },
+  "devDependencies": {
+    "@types/n3": "^1.21.1"
+  }
+}

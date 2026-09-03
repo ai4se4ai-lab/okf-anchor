@@ -1,76 +1,160 @@
 # OKF Anchor
 
-**OKF Anchor is an open-source platform for publishing, verifying, preserving, and querying Open Knowledge Format (OKF) knowledge bundles as trusted knowledge assets.**
+Publish, canonicalize, hash, graph, store, and **blockchain‑anchor** Open Knowledge
+Format (OKF v0.2) knowledge bundles as trusted, independently verifiable knowledge
+assets.
 
-It provides a bridge between **OKF-based knowledge systems and decentralized trust infrastructure**, allowing servers and applications that generate OKF bundles to securely publish them, create cryptographic commitments, anchor their state on blockchain/DKG infrastructure, and make the resulting knowledge assets independently verifiable and queryable.
+An OKF‑producing server (for example [MindPortalix](docs/integration/mindportalix.md))
+sends a bundle. OKF Anchor:
 
-### Key Capabilities
+1. **Validates** it against OKF v0.2 (permissive — `type` is the only hard requirement).
+2. **Canonicalizes** it deterministically — two servers emitting the same knowledge with
+   different YAML whitespace converge to the same `canonicalHash`.
+3. **Hashes** it: per‑file SHA‑256, a domain‑separated **Merkle root**, a manifest hash.
+4. **Derives an RDF knowledge graph** (PROV‑O / DCAT / SKOS), canonicalized with RDFC‑1.0.
+5. **Stores** the source archive, canonical form, graph, and manifest in content‑addressed
+   storage.
+6. **Signs** a commitment (Ed25519) and **anchors** it on a blockchain / DKG.
 
-* **OKF Bundle Validation** — Validate structure, metadata, provenance, trust information, links, and other OKF requirements before publication.
-* **Canonicalization & Integrity** — Produce deterministic representations and cryptographic hashes of OKF bundles so that their integrity can be independently verified.
-* **Decentralized Storage** — Store published knowledge bundles and derived representations using content-addressed infrastructure such as IPFS.
-* **Blockchain Anchoring** — Anchor knowledge-asset state and cryptographic commitments on blockchain/DKG infrastructure.
-* **Verifiable Provenance** — Preserve sources, generation information, verification status, publisher identity, and publication history.
-* **Immutable Versioning** — Treat published knowledge as versioned assets rather than silently overwriting previously published content.
-* **Knowledge Graph Generation** — Transform OKF bundles into machine-queryable semantic representations.
-* **SPARQL Querying** — Enable deterministic queries over the published knowledge graph.
-* **Independent Verification** — Allow third parties to retrieve an asset, reproduce its hashes, verify its provenance, and compare its state against the blockchain anchor.
-* **Server-to-Server Publishing** — Provide authenticated APIs through which OKF-producing servers can automatically publish knowledge bundles.
-* **Human & Machine Interfaces** — Provide a web interface, APIs, and potentially a CLI for publishing, inspecting, verifying, and querying knowledge assets.
+The blockchain records a *commitment to state*, never the knowledge itself. The OKF
+bundle stays authoritative. Anyone can later retrieve the asset, **re‑derive every hash
+from stored content, and compare it to the anchor** — trusting no part of this service.
 
-### Concept
+---
 
-```text
-OKF-Producing Server
-        │
-        │ Publish OKF Bundle
-        ▼
-┌─────────────────────┐
-│     OKF Anchor      │
-│                     │
-│ Validate            │
-│ Canonicalize        │
-│ Hash                │
-│ Build Knowledge KG  │
-│ Sign / Attest       │
-└─────────┬───────────┘
-          │
-     ┌────┴─────────────┐
-     ▼                  ▼
-   IPFS             Blockchain / DKG
-     │                  │
-     └────────┬─────────┘
-              ▼
-       Verifiable Knowledge
-            Asset
-              │
-       ┌──────┴───────┐
-       ▼              ▼
-   Verification    SPARQL / KG
+## Quickstart
+
+```bash
+pnpm install
+docker compose up -d                       # Postgres + Redis (offset host ports 55432 / 56379)
+pnpm --filter @okf-anchor/db generate
+pnpm build                                  # all packages + workers + web
+
+# create your local .env (see "Environment" below), then:
+pnpm db:migrate
+pnpm db:seed                                # prints a well-known dev API token
+pnpm dev                                     # Next.js on :3000 + the mint worker
 ```
 
-### Design Goal
+Open <http://localhost:3000>. Or drive it headless:
 
-OKF Anchor separates **knowledge content, semantic representation, storage, and trust anchoring**.
+```bash
+export ANCHOR=http://localhost:3000
+TOKEN=okf_dev_local_0000000000000000000000000000
 
-The blockchain is used as a **trust and integrity anchor**, rather than as the database for the knowledge itself. The OKF bundle remains the authoritative knowledge artifact, decentralized/content-addressed storage provides durable access to the artifact, the knowledge graph provides semantic queryability, and blockchain/DKG infrastructure provides an independently verifiable record of the published asset's state.
+# publish a bundle (a directory, .zip, or .tgz — e.g. a MindPortalix export)
+pnpm --filter @okf-anchor/publisher-cli exec node dist/main.js login $ANCHOR --token $TOKEN
+pnpm --filter @okf-anchor/publisher-cli exec node dist/main.js publish ./tests/fixtures/valid-mindportalix --slug demo --wait
 
-This makes it possible to build applications where knowledge is not merely *stored*, but can be **proven, traced, verified, and queried**.
+# verify (re-derived from stored content) / tamper-check / query
+okf verify <assetId>
+okf verify <assetId> ./local-bundle.tgz     # compare a local copy to what was anchored
+okf query 'PREFIX okf:<https://okf.dev/ns#> SELECT ?t (COUNT(?c) AS ?n) WHERE { ?c okf:type ?t } GROUP BY ?t'
+```
 
-### Example Use Case
+The public verification page for any asset is `/verify/{assetId}` (no auth).
 
-A medical-AI research server generates an OKF bundle containing clinical knowledge, scientific claims, sources, provenance, computational results, and verification information.
+---
 
-The server publishes the bundle to OKF Anchor. The platform validates and canonicalizes the bundle, computes its cryptographic commitments, stores the content through content-addressed infrastructure, generates a queryable knowledge graph, and anchors the asset state on blockchain/DKG infrastructure.
+## Architecture — five layers, kept separate (`CLAUDE.md` §2)
 
-Later, another researcher can:
+| Layer | Package / dir | Artifact |
+| --- | --- | --- |
+| OKF source (raw upload, never executed) | `packages/providers` (bytes) · `OkfSource` | source archive CID |
+| Canonical representation | `packages/okf-core/src/canonical` | `canonicalHash`, per‑file SHA‑256, `merkleRoot` |
+| Derived knowledge graph (non‑authoritative) | `packages/okf-core/src/graph` · `GraphProvider` | `graphHash` (RDFC‑1.0 N‑Quads) |
+| Decentralized storage | `packages/providers/src/storage` | `storageCid` |
+| Blockchain anchor (commitment only) | `packages/providers/src/anchor` | `anchorRef`, `commitmentHash` |
 
-1. Retrieve the published knowledge asset.
-2. Verify that the content has not been modified.
-3. Verify its provenance and publisher.
-4. Compare its cryptographic state with the blockchain anchor.
-5. Inspect previous versions.
-6. Query the knowledge graph using SPARQL.
-7. Trace individual claims back to their sources and supporting knowledge.
+```
+packages/
+  okf-core/       parse · validate · canonicalize · Merkle · manifest · RDF derive   (pure, no I/O)
+  providers/      StorageProvider · AnchorProvider · GraphProvider · Signer  (+ Local, offline)
+  db/             Prisma schema, immutable-versioning triggers, client
+  queue/          BullMQ wiring (producer + consumer)
+  pipeline/       archive extraction · publish orchestration · verification
+  publisher-cli/  `okf` — validate / hash / publish / status / verify / query
+workers/          the mint worker (runs the pipeline off the HTTP path)
+apps/web/         Next.js App Router — S2S API (/api/v1), public API, and the UI
+```
 
-**OKF Anchor turns OKF bundles into durable, verifiable, and queryable knowledge assets.**
+Every provider ships a **local, offline implementation** selected by env
+(`STORAGE_PROVIDER` / `ANCHOR_PROVIDER` / `GRAPH_PROVIDER` / `SIGNER`, all `local` by
+default), so `docker compose up` runs the whole pipeline with no external network. Real
+IPFS (Kubo), EVM (anvil), and an external SPARQL store slot in behind the same interfaces
+via Compose profiles; an OriginTrail DKG adapter is stubbed pending SDK verification.
+
+---
+
+## Immutability
+
+`Asset` (logical identity) → many append‑only `AssetVersion` rows. A unique
+`(assetId, canonicalHash)` constraint makes re‑publishing identical content a no‑op that
+returns the existing version — **never** an update, **never** a second anchor. Changed
+content becomes a new numbered version with its own hashes and anchor. A database trigger
+rejects any `UPDATE`/`DELETE` on a published version or a confirmed anchor, loudly.
+
+---
+
+## API
+
+Server‑to‑server (Bearer token, optional Ed25519 body signature):
+
+| | |
+| --- | --- |
+| `POST /api/v1/bundles` | publish an archive → `202 { jobId }` |
+| `POST /api/v1/bundles/validate` | validate + hash only, no persistence |
+| `GET  /api/v1/mint-jobs/{id}` | mint state machine + the asset once `MINTED` |
+| `GET  /api/v1/assets/{id}` | hashes, CIDs, signature, anchor, version history |
+| `POST /api/v1/assets/verify` | verify by id, or against an uploaded bundle |
+| `POST /api/v1/query` | read‑only SPARQL |
+
+Public, unauthenticated: `GET /api/public/assets/{id}`, `.../verify`,
+`POST /api/public/query`, and the page `GET /verify/{assetId}`.
+
+Full spec: [`docs/integration/openapi.yaml`](docs/integration/openapi.yaml).
+MindPortalix wiring, curl one‑liners, and a reference client:
+[`docs/integration/mindportalix.md`](docs/integration/mindportalix.md).
+
+---
+
+## Environment
+
+`.env` is git‑ignored; create it from this list (placeholders only — no real secrets):
+
+```
+NODE_ENV=development
+DATABASE_URL=postgresql://okf:okf_local_dev@localhost:55432/okf_anchor
+REDIS_URL=redis://localhost:56379
+STORAGE_PROVIDER=local
+ANCHOR_PROVIDER=local
+GRAPH_PROVIDER=local
+SIGNER=local
+OKF_DATA_DIR=./.data/okf
+OKF_PUBLIC_BASE_URL=http://localhost:3000
+NEXTAUTH_SECRET=dev-only-change-me
+# Optional dev EVM key for ANCHOR_PROVIDER=evm — never in production:
+# ANCHOR_SIGNER_KEY_REF=...
+# SIGNER_PRIVATE_KEY_PEM=...
+# OKF_INLINE_MINT=1   # run the pipeline in-process (no separate worker), for dev/CI
+```
+
+Signer key material is referenced by `*_KEY_REF` and lives in a secrets manager — never
+in Postgres, logs, responses, or fixtures.
+
+---
+
+## Testing
+
+```bash
+pnpm lint
+pnpm typecheck
+pnpm --filter @okf-anchor/okf-core --filter @okf-anchor/providers run test   # unit, no DB
+pnpm --filter @okf-anchor/pipeline run test                                   # integration, needs Postgres
+pnpm --filter @okf-anchor/web run test:e2e                                    # Playwright (a11y + flows)
+```
+
+Coverage includes deterministic‑hashing tests (byte‑identical across runs), golden bundle
+fixtures (the real MindPortalix ICSE‑SEET bundle plus the OKF reference corpus),
+immutability (a changed re‑publish creates v2, v1 unchanged), tamper detection, and
+security (path traversal / zip‑slip, SSRF, SPARQL write‑form rejection).

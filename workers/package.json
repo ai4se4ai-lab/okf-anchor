@@ -1,0 +1,22 @@
+{
+  "name": "@okf-anchor/workers",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "BullMQ consumer that runs the mint pipeline off the HTTP path.",
+  "scripts": {
+    "build": "tsc -b",
+    "dev": "tsx watch src/main.ts",
+    "start": "node dist/main.js",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "@okf-anchor/db": "workspace:*",
+    "@okf-anchor/pipeline": "workspace:*",
+    "@okf-anchor/providers": "workspace:*",
+    "@okf-anchor/queue": "workspace:*"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.1"
+  }
+}

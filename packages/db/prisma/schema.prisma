@@ -1,0 +1,360 @@
+// OKF Anchor metadata store (CLAUDE.md §2, §3; skill: okf-prisma-postgres).
+//
+// PostgreSQL holds: asset records, immutable versions, the five-layer records,
+// publication history, provenance, publisher identity, validation/verification
+// results, hashes/commitments, CIDs, anchor references, job state.
+//
+// PostgreSQL never holds: private keys, signer key material, raw API secrets
+// (only a hash), or knowledge payloads (those live in content-addressed storage
+// and are referenced here by CID).
+
+generator client {
+  provider        = "prisma-client-js"
+  output          = "../src/generated/client"
+  previewFeatures = []
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Identity
+// ---------------------------------------------------------------------------
+
+enum Role {
+  ADMIN
+  PUBLISHER
+  VIEWER
+}
+
+enum BuildServerEnvironment {
+  DEVELOPMENT
+  STAGING
+  PRODUCTION
+}
+
+model Organization {
+  id        String        @id @default(cuid())
+  slug      String        @unique
+  name      String
+  createdAt DateTime      @default(now())
+  users     User[]
+  servers   BuildServer[]
+  assets    Asset[]
+}
+
+model User {
+  id             String       @id @default(cuid())
+  email          String       @unique
+  name           String?
+  role           Role         @default(VIEWER)
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  organizationId String
+  createdAt      DateTime     @default(now())
+
+  @@index([organizationId])
+}
+
+/// A machine identity that publishes bundles. `publisherId` is the stable string
+/// that appears in the on-chain commitment and on every version this server mints.
+model BuildServer {
+  id             String                @id @default(cuid())
+  name           String
+  publisherId    String                @unique
+  environment    BuildServerEnvironment @default(DEVELOPMENT)
+  organization   Organization          @relation(fields: [organizationId], references: [id])
+  organizationId String
+  /// Raw 32-byte Ed25519 public key (hex) used to verify `X-OKF-Signature`. Not a secret.
+  publicKeyHex   String?
+  disabledAt     DateTime?
+  createdAt      DateTime              @default(now())
+  credentials    ApiCredential[]
+  mintJobs       MintJob[]
+
+  @@index([organizationId])
+}
+
+/// An API key for a build server. Only a hash of the token is stored; the plaintext
+/// is shown once at creation and never again (skill: okf-security).
+model ApiCredential {
+  id            String      @id @default(cuid())
+  buildServer   BuildServer @relation(fields: [buildServerId], references: [id])
+  buildServerId String
+  /// First 12 chars of the token, for O(1) lookup before the constant-time hash compare.
+  tokenPrefix   String      @unique
+  tokenHash     String
+  label         String?
+  createdAt     DateTime    @default(now())
+  lastUsedAt    DateTime?
+  revokedAt     DateTime?
+
+  @@index([buildServerId])
+}
+
+// ---------------------------------------------------------------------------
+// Assets and immutable versions
+// ---------------------------------------------------------------------------
+
+model Asset {
+  id               String         @id @default(cuid())
+  /// Logical identity within a publisher — a new publish of the same slug is a new version.
+  slug             String
+  name             String
+  description      String?
+  okfVersion       String         @default("0.2")
+  publisherId      String
+  organization     Organization   @relation(fields: [organizationId], references: [id])
+  organizationId   String
+  currentVersion   AssetVersion?  @relation("CurrentVersion", fields: [currentVersionId], references: [id])
+  currentVersionId String?        @unique
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+  // No `onDelete: Cascade`: published history is permanent.
+  versions         AssetVersion[] @relation("AssetVersions")
+  history          PublicationHistory[]
+
+  @@unique([publisherId, slug])
+  @@index([organizationId])
+}
+
+enum AnchorState {
+  PENDING
+  SUBMITTED
+  CONFIRMED
+  FAILED
+}
+
+/// One immutable published version. Append-only. A DB trigger (see the
+/// `immutability_guards` migration) rejects UPDATE/DELETE on these rows.
+model AssetVersion {
+  id            String   @id @default(cuid())
+  asset         Asset    @relation("AssetVersions", fields: [assetId], references: [id])
+  assetId       String
+  versionNumber Int
+  publishedAt   DateTime @default(now())
+  publisherId   String
+
+  // Content commitments (also denormalized onto their layer rows below).
+  canonicalHash  String
+  merkleRoot     String
+  graphHash      String
+  manifestHash   String
+  commitmentHash String
+
+  // Publisher signature over the commitment (Ed25519). Public key is not a secret.
+  signatureHex          String?
+  signaturePublicKeyHex String?
+
+  // Five-layer records (CLAUDE.md §2).
+  source        OkfSource?
+  canonical     CanonicalRepresentation @relation(fields: [canonicalId], references: [id])
+  canonicalId   String                  @unique
+  graph         KnowledgeGraph          @relation(fields: [graphId], references: [id])
+  graphId       String                  @unique
+  storageObjects StorageObject[]
+  anchor        Anchor?
+
+  currentOf     Asset?               @relation("CurrentVersion")
+  verifications VerificationResult[]
+  mintJob       MintJob?
+  historyRows   PublicationHistory[]
+
+  @@unique([assetId, canonicalHash])
+  @@unique([assetId, versionNumber])
+  @@index([publisherId])
+  @@index([canonicalHash])
+  @@index([commitmentHash])
+}
+
+/// Layer 1 — the raw uploaded bundle as received. Bytes live in storage; this is the pointer.
+model OkfSource {
+  id               String       @id @default(cuid())
+  assetVersion     AssetVersion @relation(fields: [assetVersionId], references: [id])
+  assetVersionId   String       @unique
+  originalFilename String?
+  mediaType        String // application/zip | application/gzip
+  sizeBytes        Int
+  fileCount        Int
+  /// CID of the exact archive bytes that were received.
+  sourceCid        String
+  receivedAt       DateTime     @default(now())
+}
+
+/// Layer 2 — deterministic serialization used for hashing. No semantic enrichment.
+model CanonicalRepresentation {
+  id            String        @id @default(cuid())
+  /// Not globally unique: it is 1:1 with an AssetVersion. The dedup identity is
+  /// AssetVersion(assetId, canonicalHash).
+  canonicalHash String
+  algo          String        @default("sha-256")
+  deterministic Boolean       @default(true)
+  fileCount     Int
+  merkleRoot    String
+  /// CID of the stored canonical form (JCS bytes) for independent re-hashing.
+  canonicalCid  String
+  producedAt    DateTime      @default(now())
+  assetVersion  AssetVersion?
+
+  @@index([canonicalHash])
+}
+
+/// Layer 3 — derived RDF graph. Never authoritative; `derivedFromCanonicalHash` ties
+/// it back to layer 2 so re-derivation is auditable.
+model KnowledgeGraph {
+  id                       String        @id @default(cuid())
+  /// Not globally unique: a prose-only edit leaves the derived graph (hence its
+  /// hash) unchanged while the canonical hash moves. 1:1 with an AssetVersion.
+  graphHash                String
+  format                   String        @default("application/n-quads")
+  derivedFromCanonicalHash String
+  tripleCount              Int
+  /// CID of the canonical N-Quads.
+  graphCid                 String
+  producedAt               DateTime      @default(now())
+  assetVersion             AssetVersion?
+
+  @@index([graphHash])
+  @@index([derivedFromCanonicalHash])
+}
+
+enum StorageObjectKind {
+  SOURCE_ARCHIVE
+  CANONICAL_BUNDLE
+  MANIFEST
+  GRAPH_NQUADS
+}
+
+/// Layer 4 — content-addressed persistence records.
+model StorageObject {
+  id             String            @id @default(cuid())
+  assetVersion   AssetVersion      @relation(fields: [assetVersionId], references: [id])
+  assetVersionId String
+  kind           StorageObjectKind
+  cid            String
+  provider       String
+  sizeBytes      Int
+  pinned         Boolean           @default(false)
+  createdAt      DateTime          @default(now())
+
+  @@unique([assetVersionId, kind])
+  @@index([cid])
+}
+
+/// Layer 5 — on-chain commitment. Immutable once CONFIRMED (see immutability_guards).
+model Anchor {
+  id             String       @id @default(cuid())
+  assetVersion   AssetVersion @relation(fields: [assetVersionId], references: [id])
+  assetVersionId String       @unique
+  provider       String
+  network        String
+  ref            String
+  committedHash  String
+  state          AnchorState  @default(PENDING)
+  confirmations  Int          @default(0)
+  blockNumber    Int?
+  error          String?
+  createdAt      DateTime     @default(now())
+  confirmedAt    DateTime?
+
+  @@index([committedHash])
+}
+
+/// Append-only publication log — one row per accepted publish of a version.
+model PublicationHistory {
+  id             String        @id @default(cuid())
+  asset          Asset         @relation(fields: [assetId], references: [id])
+  assetId        String
+  assetVersion   AssetVersion  @relation(fields: [assetVersionId], references: [id])
+  assetVersionId String
+  versionNumber  Int
+  publisherId    String
+  canonicalHash  String
+  note           String?
+  createdAt      DateTime      @default(now())
+
+  @@index([assetId])
+}
+
+// ---------------------------------------------------------------------------
+// Jobs, verification, audit
+// ---------------------------------------------------------------------------
+
+enum MintJobState {
+  RECEIVED
+  VALIDATING
+  INVALID
+  VALID
+  CANONICALIZING
+  HASHING
+  GRAPHING
+  UPLOADING
+  SIGNING
+  SUBMITTING
+  CONFIRMING
+  MINTED
+  FAILED
+}
+
+model MintJob {
+  id             String        @id @default(cuid())
+  buildServer    BuildServer   @relation(fields: [buildServerId], references: [id])
+  buildServerId  String
+  publisherId    String
+  assetSlug      String
+  /// Client-supplied idempotency key; a retry with the same key returns this job.
+  idempotencyKey String?       @unique
+  state          MintJobState  @default(RECEIVED)
+  attempts       Int           @default(0)
+  /// CID of the received source archive (bytes in storage).
+  sourceCid      String
+  error          String?
+  assetVersion   AssetVersion? @relation(fields: [assetVersionId], references: [id])
+  assetVersionId String?       @unique
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  @@index([buildServerId])
+  @@index([publisherId, assetSlug])
+  @@index([state])
+}
+
+model VerificationResult {
+  id               String       @id @default(cuid())
+  assetVersion     AssetVersion @relation(fields: [assetVersionId], references: [id])
+  assetVersionId   String
+  requestedBy      String?
+  contentIntegrity   Boolean
+  manifestIntegrity  Boolean
+  anchorIntegrity    Boolean
+  signatureIntegrity Boolean
+  storageIntegrity   Boolean
+  graphIntegrity     Boolean
+  passed             Boolean
+  changedFiles       String[]
+  createdAt        DateTime     @default(now())
+
+  @@index([assetVersionId])
+}
+
+enum ActorType {
+  HUMAN
+  BUILD_SERVER
+  SYSTEM
+}
+
+model AuditEvent {
+  id          String    @id @default(cuid())
+  actorType   ActorType
+  actorId     String
+  action      String
+  subjectType String
+  subjectId   String
+  ip          String?
+  metadata    Json?
+  createdAt   DateTime  @default(now())
+
+  @@index([subjectType, subjectId])
+  @@index([createdAt])
+}

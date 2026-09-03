@@ -1,0 +1,12 @@
+{
+  "files": [],
+  "references": [
+    { "path": "packages/okf-core" },
+    { "path": "packages/providers" },
+    { "path": "packages/db" },
+    { "path": "packages/queue" },
+    { "path": "packages/pipeline" },
+    { "path": "packages/publisher-cli" },
+    { "path": "workers" }
+  ]
+}

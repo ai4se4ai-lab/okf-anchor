@@ -1,0 +1,17 @@
+{
+  "name": "@okf-anchor/publisher-cli",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "@okf/publisher — a small CLI for build servers: validate, hash, publish, status, verify, query. Talks to the OKF Anchor HTTP API.",
+  "bin": { "okf": "./dist/main.js" },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc -b",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "@okf-anchor/okf-core": "workspace:*",
+    "fflate": "^0.8.2"
+  }
+}

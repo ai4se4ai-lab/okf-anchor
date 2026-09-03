@@ -1,0 +1,23 @@
+# Supply-chain hardening (pnpm >= 10.26): treat every dependency as untrusted
+# by default, per CLAUDE.md "keep dependencies pinned and audited".
+minimumReleaseAge: 10080
+minimumReleaseAgeIgnoreMissingTime: true
+trustPolicy: no-downgrade
+# The registry mirror in this environment rewrites publish timestamps to "now",
+# which makes an absolute time cutoff meaningless and would otherwise block the
+# whole install. Enforce the no-downgrade check only on very recently published
+# versions (< 1 day) where a fresh compromise would land; skip settled ones.
+trustPolicyIgnoreAfter: 1440
+blockExoticSubdeps: true
+
+# Allow only these vetted packages to run install scripts.
+onlyBuiltDependencies:
+  - esbuild
+  - "@prisma/client"
+  - "@prisma/engines"
+  - prisma
+
+packages:
+  - "apps/*"
+  - "packages/*"
+  - "workers"

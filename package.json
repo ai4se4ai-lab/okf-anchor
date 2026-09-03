@@ -1,0 +1,42 @@
+{
+  "name": "okf-anchor",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Publish, canonicalize, hash, graph, store and blockchain-anchor OKF v0.2 knowledge bundles as independently verifiable knowledge assets.",
+  "license": "MIT",
+  "type": "module",
+  "packageManager": "pnpm@10.34.5",
+  "engines": {
+    "node": ">=20.11.0",
+    "pnpm": ">=10.26.0"
+  },
+  "scripts": {
+    "build": "pnpm -r --workspace-concurrency=1 --filter \"./packages/**\" run build && pnpm --filter @okf-anchor/workers run build && pnpm --filter @okf-anchor/web run build",
+    "dev": "concurrently -n web,worker -c blue,green \"pnpm --filter @okf-anchor/web dev\" \"pnpm --filter @okf-anchor/workers dev\"",
+    "dev:web": "pnpm --filter @okf-anchor/web dev",
+    "worker": "pnpm --filter @okf-anchor/workers dev",
+    "lint": "eslint .",
+    "typecheck": "tsc -b --pretty && pnpm --filter @okf-anchor/web exec tsc --noEmit",
+    "test": "pnpm -r --workspace-concurrency=1 run test",
+    "test:watch": "vitest",
+    "test:e2e": "pnpm --filter @okf-anchor/web test:e2e",
+    "db:migrate": "pnpm --filter @okf-anchor/db exec prisma migrate deploy",
+    "db:migrate:dev": "pnpm --filter @okf-anchor/db exec prisma migrate dev",
+    "db:generate": "pnpm --filter @okf-anchor/db exec prisma generate",
+    "db:seed": "pnpm --filter @okf-anchor/db run seed",
+    "compose:up": "docker compose up -d",
+    "compose:down": "docker compose down",
+    "compose:reset": "docker compose down -v"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.11.1",
+    "@types/node": "^20.14.10",
+    "concurrently": "^9.1.0",
+    "eslint": "^9.11.1",
+    "prettier": "^3.3.3",
+    "tsx": "^4.19.1",
+    "typescript": "^5.6.2",
+    "typescript-eslint": "^8.8.0",
+    "vitest": "^2.1.1"
+  }
+}
