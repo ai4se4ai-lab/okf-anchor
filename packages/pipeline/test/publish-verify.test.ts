@@ -14,7 +14,7 @@ import { zipSync, strToU8 } from "fflate";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { prisma } from "@okf-anchor/db";
 import { createProviders, type Providers } from "@okf-anchor/providers";
-import { publishBundle, verifyAgainstUpload, verifyStoredVersion } from "../src/index.js";
+import { publishBundle, runMintJob, verifyAgainstUpload, verifyStoredVersion } from "../src/index.js";
 
 const FIXTURES = fileURLToPath(new URL("../../../tests/fixtures/", import.meta.url));
 const RUN = `test-${Date.now()}`;
@@ -155,6 +155,45 @@ describe.runIf(process.env["RUN_DB_TESTS"] !== "0")("publish → verify → tamp
     expect(b.deduplicated).toBe(true);
     expect(b.assetVersionId).toBe(a.assetVersionId);
     expect(b.versionNumber).toBe(1);
+  });
+
+  it("runMintJob twice on identical content both reach MINTED and point at one version", async () => {
+    if (!dbUp) return;
+    const server = await prisma.buildServer.findUniqueOrThrow({
+      where: { publisherId: `build-server:${RUN}` },
+    });
+    const slug = `remint-${RUN}`;
+    const zip = zipOf(fixtureFiles("ref-ga4"));
+    const sourceCid = await providers.storage.put(zip);
+
+    const runOnce = async (): Promise<string> => {
+      const job = await prisma.mintJob.create({
+        data: {
+          buildServerId: server.id,
+          publisherId: server.publisherId,
+          assetSlug: slug,
+          sourceCid,
+          state: "RECEIVED",
+        },
+      });
+      const res = await runMintJob(job.id, { prisma, providers });
+      expect(res.error).toBeUndefined();
+      expect(res.state).toBe("MINTED");
+      return job.id;
+    };
+
+    const first = await runOnce();
+    // Second job de-duplicates to the version the first minted — this used to
+    // fail the job with a P2002 on the (now non-unique) assetVersionId.
+    const second = await runOnce();
+
+    const jobs = await prisma.mintJob.findMany({
+      where: { id: { in: [first, second] } },
+      select: { state: true, assetVersionId: true },
+    });
+    expect(jobs.map((j) => j.state)).toEqual(["MINTED", "MINTED"]);
+    expect(jobs[0]!.assetVersionId).toBeTruthy();
+    expect(jobs[0]!.assetVersionId).toBe(jobs[1]!.assetVersionId);
   });
 
   it("verifies the stored version — all six checks pass", async () => {

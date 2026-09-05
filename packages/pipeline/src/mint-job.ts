@@ -71,6 +71,10 @@ export async function runMintJob(jobId: string, ctx: RunMintJobContext): Promise
       },
     );
 
+    // `result.assetVersionId` may be a version an earlier job already minted
+    // (`result.deduplicated` — identical canonical content, no new anchor). That
+    // is a success: point this job at the same version. MintJob.assetVersionId
+    // is intentionally non-unique so more than one job can reference it.
     await ctx.prisma.mintJob.update({
       where: { id: jobId },
       data: { state: "MINTED", assetVersionId: result.assetVersionId, error: null },

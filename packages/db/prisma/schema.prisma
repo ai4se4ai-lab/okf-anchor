@@ -158,7 +158,10 @@ model AssetVersion {
 
   currentOf     Asset?               @relation("CurrentVersion")
   verifications VerificationResult[]
-  mintJob       MintJob?
+  // Several mint jobs can resolve to one version: re-submitting content that is
+  // byte-identical (after canonicalization) to an already-minted version
+  // de-duplicates to that existing version instead of anchoring a new one.
+  mintJobs      MintJob[]
   historyRows   PublicationHistory[]
 
   @@unique([assetId, canonicalHash])
@@ -310,14 +313,17 @@ model MintJob {
   /// CID of the received source archive (bytes in storage).
   sourceCid      String
   error          String?
+  // Not unique: an identical re-submission de-duplicates to a version that an
+  // earlier job already produced, so more than one job can point at it.
   assetVersion   AssetVersion? @relation(fields: [assetVersionId], references: [id])
-  assetVersionId String?       @unique
+  assetVersionId String?
   createdAt      DateTime      @default(now())
   updatedAt      DateTime      @updatedAt
 
   @@index([buildServerId])
   @@index([publisherId, assetSlug])
   @@index([state])
+  @@index([assetVersionId])
 }
 
 model VerificationResult {
