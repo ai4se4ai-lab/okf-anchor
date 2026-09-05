@@ -8,6 +8,8 @@
  */
 import { redactMeta } from "./redact.js";
 
+export { redactMeta, isSecretKey, SECRET_KEY_PATTERN, REDACTED } from "./redact.js";
+
 export type LogLevel = "debug" | "info" | "warn" | "error";
 export type LogMeta = Record<string, unknown>;
 

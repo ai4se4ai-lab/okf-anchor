@@ -9,8 +9,10 @@ export default function ChainPage() {
       <div>
         <h1 className="text-2xl font-semibold">Live chain</h1>
         <p className="mt-1 text-sm text-slate-500">
-          Live blocks and anchor commitments from the configured EVM anchor provider, with the IPFS bundle CID each
-          commitment points at. The chain is a trust anchor only — see the asset pages for the knowledge itself.
+          An interactive chain of recent blocks — click any block for its hashes, gas, transactions, and the anchor
+          commitments it carries — plus a live console that streams every mint and verify action (IPFS, hashing,
+          signing, and the on-chain anchor) as it happens. The chain is a trust anchor only; the knowledge itself
+          lives on the asset pages.
         </p>
       </div>
       <ChainExplorer />

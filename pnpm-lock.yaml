@@ -38,6 +38,9 @@ importers:
 
   apps/web:
     dependencies:
+      '@okf-anchor/activity':
+        specifier: workspace:*
+        version: link:../../packages/activity
       '@okf-anchor/db':
         specifier: workspace:*
         version: link:../../packages/db
@@ -108,6 +111,15 @@ importers:
       vitest:
         specifier: ^2.1.1
         version: 2.1.9(@types/node@20.19.43)
+
+  packages/activity:
+    dependencies:
+      '@okf-anchor/logger':
+        specifier: workspace:*
+        version: link:../logger
+      ioredis:
+        specifier: ^5.4.2
+        version: 5.11.1
 
   packages/db:
     dependencies:
@@ -206,6 +218,9 @@ importers:
 
   workers:
     dependencies:
+      '@okf-anchor/activity':
+        specifier: workspace:*
+        version: link:../packages/activity
       '@okf-anchor/db':
         specifier: workspace:*
         version: link:../packages/db

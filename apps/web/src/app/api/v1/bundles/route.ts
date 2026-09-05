@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { prisma, providers, publicBaseUrl } from "@/server/providers";
+import { prisma, providers, publicBaseUrl, activity } from "@/server/providers";
 import { authenticateServer, AuthError, recordAudit } from "@/server/auth";
 import { apiError, fromOkfError, readArchive } from "@/server/api";
 import { rateLimit } from "@/server/ratelimit";
@@ -68,7 +68,18 @@ export async function POST(req: Request): Promise<NextResponse> {
     });
 
     if (INLINE_MINT) {
-      await runMintJob(job.id, { prisma, providers, publicBaseUrl });
+      await activity.start({ runId: job.id, kind: "mint" });
+      const inline = await runMintJob(job.id, {
+        prisma,
+        providers,
+        publicBaseUrl,
+        onEvent: activity.onEvent(job.id),
+      });
+      await activity.finish(job.id, {
+        state: inline.state === "MINTED" ? "done" : "error",
+        ...(inline.publish ? { assetId: inline.publish.assetId, versionNumber: inline.publish.versionNumber } : {}),
+        ...(inline.error ? { note: inline.error } : {}),
+      });
     } else {
       await enqueueMint(job.id).catch(async (err) => {
         // Redis down: fail the job loudly rather than leaving it stuck.

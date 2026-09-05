@@ -14,6 +14,7 @@ FROM base AS deps
 COPY pnpm-lock.yaml pnpm-workspace.yaml package.json .npmrc ./
 COPY packages/okf-core/package.json      packages/okf-core/
 COPY packages/logger/package.json        packages/logger/
+COPY packages/activity/package.json      packages/activity/
 COPY packages/providers/package.json     packages/providers/
 COPY packages/db/package.json            packages/db/
 COPY packages/queue/package.json         packages/queue/

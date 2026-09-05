@@ -186,6 +186,23 @@ describe("EvmAnchorProvider (real Anvil)", () => {
       expect(found).toBeTruthy();
       expect(found!.bundleCid).toBe(commitment.storageCid);
       expect(found!.versionNumber).toBe(commitment.versionNumber);
+
+      // Block detail for the interactive click-to-inspect view.
+      for (const b of snapshot.blocks) {
+        expect(b.baseFeePerGasWei === null || /^\d+$/.test(b.baseFeePerGasWei)).toBe(true);
+        expect(Array.isArray(b.transactionHashes)).toBe(true);
+        expect(b.transactionHashes.length).toBeLessThanOrEqual(b.transactionCount);
+        expect(b.transactionHashes.length).toBeLessThanOrEqual(25);
+      }
+      const anchoredBlock = snapshot.blocks.find((b) => b.number === found!.blockNumber);
+      if (anchoredBlock) {
+        expect(anchoredBlock.transactionHashes.map((h) => h.toLowerCase())).toContain(anchoredTxHash.toLowerCase());
+      }
+
+      // status() surfaces gas metadata from the receipt it already reads.
+      const st = await evm.status(ref);
+      expect(st.gasUsed).toBeGreaterThan(0);
+      expect(st.transactionHash?.toLowerCase()).toBe(anchoredTxHash.toLowerCase());
     },
     TX_TIMEOUT_MS,
   );

@@ -6,6 +6,7 @@
     "tsBuildInfoFile": "dist/.tsbuildinfo"
   },
   "references": [
+    { "path": "../packages/activity" },
     { "path": "../packages/db" },
     { "path": "../packages/logger" },
     { "path": "../packages/providers" },

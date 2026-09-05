@@ -7,6 +7,7 @@ import type { PrismaClient } from "@okf-anchor/db";
 import type { Providers } from "@okf-anchor/providers";
 import { OkfError } from "@okf-anchor/okf-core";
 import { publishBundle, type PublishResult, type PublishStage } from "./publish.js";
+import type { PipelineEventSink } from "./events.js";
 
 const STAGE_TO_STATE: Record<PublishStage, string> = {
   VALIDATING: "VALIDATING",
@@ -24,6 +25,8 @@ export interface RunMintJobContext {
   readonly prisma: PrismaClient;
   readonly providers: Providers;
   readonly publicBaseUrl?: string | undefined;
+  /** Optional structured event stream for the live activity console (best-effort). */
+  readonly onEvent?: PipelineEventSink | undefined;
 }
 
 export interface RunMintJobResult {
@@ -58,6 +61,7 @@ export async function runMintJob(jobId: string, ctx: RunMintJobContext): Promise
         prisma: ctx.prisma,
         providers: ctx.providers,
         publicBaseUrl: ctx.publicBaseUrl,
+        onEvent: ctx.onEvent,
         onStage: async (stage) => {
           await ctx.prisma.mintJob.update({
             where: { id: jobId },

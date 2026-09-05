@@ -94,6 +94,59 @@ test.describe("OKF Anchor end-to-end", () => {
     await expect(page.getByText(/Live$/).or(page.getByText(/No live EVM chain configured/))).toBeVisible({
       timeout: 15_000,
     });
+    // The live activity console renders regardless of the chain provider.
+    await expect(page.getByRole("heading", { name: "Live activity" })).toBeVisible();
+
+    // When an EVM chain is configured, blocks render as clickable cards that
+    // open a detail region. (Skipped on the default local provider — no blocks.)
+    const firstBlock = page.getByRole("button", { name: /^Block \d/ }).first();
+    if (await firstBlock.count()) {
+      await firstBlock.click();
+      await expect(page.getByRole("region", { name: /Block \d+ detail/ })).toBeVisible();
+    }
+
+    const results = await new AxeBuilder({ page }).analyze();
+    expect(results.violations).toEqual([]);
+  });
+
+  test("activity console streams a mint run with IPFS + anchor detail", async ({ page, request }) => {
+    const slug = `e2e-activity-${Date.now()}`;
+    await page.goto("/chain");
+    await expect(page.getByRole("heading", { name: "Live activity" })).toBeVisible();
+
+    // Kick off a mint while the console is open.
+    const pub = await request.post("/api/v1/bundles", {
+      headers: {
+        authorization: `Bearer ${DEV_TOKEN}`,
+        "x-okf-asset-slug": slug,
+        "x-okf-filename": "bundle.tgz",
+        "content-type": "application/gzip",
+      },
+      data: buildTgz(),
+    });
+    expect([201, 202]).toContain(pub.status());
+    const { jobId } = await pub.json();
+
+    // A "mint" run row shows up and eventually reaches a terminal phase.
+    const runRow = page.getByRole("button", { name: /mint/i }).first();
+    await expect(runRow).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByText(/persist|done|MINTED/i).first()).toBeVisible({ timeout: 30_000 });
+
+    // Expand it and confirm the detailed pipeline log is there.
+    await runRow.click();
+    await expect(page.getByText(/storage/).first()).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText(/cid:/i).first()).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText(/anchor/).first()).toBeVisible();
+
+    // Poll the job to completion so the test doesn't leave a half-run behind.
+    for (let i = 0; i < 60; i++) {
+      const body = await (
+        await request.get(`/api/v1/mint-jobs/${jobId}`, { headers: { authorization: `Bearer ${DEV_TOKEN}` } })
+      ).json();
+      if (body.state === "MINTED" || body.state === "FAILED" || body.state === "INVALID") break;
+      await new Promise((r) => setTimeout(r, 1000));
+    }
+
     const results = await new AxeBuilder({ page }).analyze();
     expect(results.violations).toEqual([]);
   });

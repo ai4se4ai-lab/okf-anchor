@@ -114,7 +114,18 @@ Server‑to‑server (Bearer token, optional Ed25519 body signature):
 | `GET  /api/v1/storage/health` | storage provider reachability (never a content fetch) |
 
 Public, unauthenticated: `GET /api/public/assets/{id}`, `.../verify`, `.../bundle`,
-`POST /api/public/query`, and the pages `GET /verify/{assetId}` and `GET /assets/{id}`.
+`POST /api/public/query`, `GET /api/public/chain/live`, and the pages
+`GET /verify/{assetId}` and `GET /assets/{id}`.
+
+**Live chain (`/chain`).** An interactive chain of recent blocks — click a block
+for its hashes, gas, base fee, transactions, and the anchor commitments it
+carries — plus a **live activity console** that streams every mint and verify
+action (archive → canonicalize → hash → graph → IPFS put/pin → Ed25519 sign →
+on‑chain `anchor()` → confirm) as it happens, each step with its CIDs, hashes,
+tx hash, block number and gas. Backed by a capped Redis stream and served over
+SSE at `GET /api/public/activity/stream` (`/recent` and `/runs/{runId}` for the
+snapshot and per‑run detail). Works with `ANCHOR_PROVIDER=local`; the block
+explorer needs `ANCHOR_PROVIDER=evm`.
 
 Full spec: [`docs/integration/openapi.yaml`](docs/integration/openapi.yaml).
 MindPortalix wiring, curl one‑liners, and a reference client:

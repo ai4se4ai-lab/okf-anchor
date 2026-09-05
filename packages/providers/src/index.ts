@@ -34,6 +34,7 @@ export {
   assetIdToBytes32,
   MAX_LIVE_BLOCKS,
   MAX_LIVE_ANCHORS,
+  MAX_BLOCK_TX_HASHES,
 } from "./evm-anchor.js";
 export {
   type GraphProvider,

@@ -12,6 +12,7 @@
     "test:e2e": "playwright test"
   },
   "dependencies": {
+    "@okf-anchor/activity": "workspace:*",
     "@okf-anchor/db": "workspace:*",
     "@okf-anchor/logger": "workspace:*",
     "@okf-anchor/okf-core": "workspace:*",

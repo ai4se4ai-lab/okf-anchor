@@ -26,6 +26,12 @@ export interface AnchorStatus {
   readonly confirmations: number;
   readonly committedHash: string | null;
   readonly blockNumber?: number;
+  /** Gas consumed by the anchoring transaction, when the provider is a real chain. */
+  readonly gasUsed?: number;
+  /** Effective gas price (wei, stringified) for the anchoring transaction, when known. */
+  readonly effectiveGasPriceWei?: string;
+  /** Transaction hash of the anchoring tx, when the ref is a tx hash. */
+  readonly transactionHash?: string;
   readonly error?: string;
 }
 

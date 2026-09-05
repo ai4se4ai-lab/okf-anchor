@@ -4,13 +4,19 @@
  */
 import "server-only";
 import { createProviders, type Providers } from "@okf-anchor/providers";
+import { createActivityRecorder, type ActivityRecorder } from "@okf-anchor/activity";
 
 declare global {
   var __okfProviders: Providers | undefined;
+  var __okfActivity: ActivityRecorder | undefined;
 }
 
 export const providers: Providers = globalThis.__okfProviders ?? createProviders();
 if (process.env.NODE_ENV !== "production") globalThis.__okfProviders = providers;
+
+/** Live mint/verify activity recorder — writes the structured pipeline event stream to Redis. */
+export const activity: ActivityRecorder = globalThis.__okfActivity ?? createActivityRecorder();
+if (process.env.NODE_ENV !== "production") globalThis.__okfActivity = activity;
 
 export { prisma } from "@okf-anchor/db";
 

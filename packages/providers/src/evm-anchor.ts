@@ -65,6 +65,10 @@ export interface EvmBlockSummary {
   readonly gasLimit: number;
   readonly transactionCount: number;
   readonly miner: Address;
+  /** Base fee per gas (wei, stringified — JSON has no bigint). `null` pre-EIP-1559. */
+  readonly baseFeePerGasWei: string | null;
+  /** Transaction hashes in the block, capped at `MAX_BLOCK_TX_HASHES` for the click-to-inspect view. */
+  readonly transactionHashes: Hex[];
 }
 
 /** One decoded `Anchored` event — the on-chain commitment plus the `bundleCid` it points at. */
@@ -91,6 +95,8 @@ export interface EvmChainSnapshot {
 /** Hard ceilings so a client-supplied count can never trigger an unbounded RPC fan-out (CLAUDE.md §3). */
 export const MAX_LIVE_BLOCKS = 50;
 export const MAX_LIVE_ANCHORS = 30;
+/** Per-block transaction-hash cap for the interactive block-detail panel. */
+export const MAX_BLOCK_TX_HASHES = 25;
 /** How far back `getLiveSnapshot` scans for `Anchored` events — bounded so a long-lived chain never forces a full-history log scan. */
 const ANCHOR_LOOKBACK_BLOCKS = 5_000n;
 
@@ -247,12 +253,21 @@ export class EvmAnchorProvider implements AnchorProvider {
     const currentBlock = await this.publicClient.getBlockNumber();
     const confirmations = Number(currentBlock - receipt.blockNumber + 1n);
 
+    const gasFields = {
+      gasUsed: Number(receipt.gasUsed),
+      ...(receipt.effectiveGasPrice != null
+        ? { effectiveGasPriceWei: receipt.effectiveGasPrice.toString() }
+        : {}),
+      transactionHash: ref.ref,
+    };
+
     if (receipt.status !== "success") {
       return {
         state: "failed",
         confirmations,
         committedHash: null,
         blockNumber: Number(receipt.blockNumber),
+        ...gasFields,
         error: "transaction reverted",
       };
     }
@@ -265,6 +280,7 @@ export class EvmAnchorProvider implements AnchorProvider {
       confirmations,
       committedHash,
       blockNumber: Number(receipt.blockNumber),
+      ...gasFields,
     };
   }
 
@@ -322,6 +338,8 @@ export class EvmAnchorProvider implements AnchorProvider {
         gasLimit: Number(b.gasLimit),
         transactionCount: b.transactions.length,
         miner: b.miner,
+        baseFeePerGasWei: b.baseFeePerGas != null ? b.baseFeePerGas.toString() : null,
+        transactionHashes: (b.transactions as Hex[]).slice(0, MAX_BLOCK_TX_HASHES),
       })),
       anchors: recentLogs.map((log) => ({
         assetIdHash: log.args.assetId as Hex,

@@ -1,0 +1,24 @@
+{
+  "name": "@okf-anchor/activity",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Live mint/verify activity stream. The pipeline emits structured PipelineEvents through an injected callback; this package records them to a capped, TTL'd Redis stream that the /chain activity console tails over SSE. Redis stays behind this boundary — the pipeline never imports it (CLAUDE.md §2).",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc -b",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@okf-anchor/logger": "workspace:*",
+    "ioredis": "^5.4.2"
+  }
+}

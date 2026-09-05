@@ -3,16 +3,17 @@
 /**
  * Live EVM chain explorer: polls the read-only `/api/public/chain/live` feed
  * (backed by `EvmAnchorProvider.getLiveSnapshot`, viem under the hood) and
- * renders recent blocks, the anchor commitments with their IPFS bundle CIDs,
- * and the D3 stat charts. Renders a graceful "not configured" message when
- * the deployment's `ANCHOR_PROVIDER` isn't `evm` (the default `local`
- * provider has no real blocks to show).
+ * renders the interactive block chain, the anchor commitments with their IPFS
+ * bundle CIDs, and the D3 stat charts. The live mint/verify activity console
+ * renders regardless of the chain provider — it only needs Redis — so a default
+ * `ANCHOR_PROVIDER=local` deployment still gets the full pipeline log.
  */
 import { useEffect, useRef, useState } from "react";
 import type { EvmChainSnapshot } from "@okf-anchor/providers";
 import { ChainStatus } from "./chain-status";
-import { BlockList } from "./block-list";
+import { BlockChain } from "./block-chain";
 import { AnchorFeed } from "./anchor-feed";
+import { ActivityConsole } from "./activity-console";
 import { BlockTimeChart } from "./charts/block-time-chart";
 import { GasUsageChart } from "./charts/gas-usage-chart";
 import { AnchorsChart } from "./charts/anchors-chart";
@@ -60,38 +61,43 @@ export function ChainExplorer() {
     };
   }, []);
 
+  const stale =
+    !!error || (lastUpdated !== null && Date.now() - lastUpdated > STALE_AFTER_MS);
+
+  let chainSection: React.ReactNode;
   if (!data && error) {
-    return <p className="card text-sm check-fail">Live chain feed unavailable: {error}</p>;
-  }
-  if (!data) {
-    return <p className="text-sm text-slate-500">Connecting to chain…</p>;
-  }
-  if (!data.available) {
-    return (
+    chainSection = <p className="card text-sm check-fail">Live chain feed unavailable: {error}</p>;
+  } else if (!data) {
+    chainSection = <p className="text-sm text-slate-500">Connecting to chain…</p>;
+  } else if (!data.available) {
+    chainSection = (
       <p className="card text-sm text-slate-500">
         No live EVM chain configured — the active anchor provider is <span className="hash">{data.provider}</span>. Set{" "}
         <code className="rounded bg-slate-100 px-1 dark:bg-slate-800">ANCHOR_PROVIDER=evm</code> (see{" "}
-        <code className="rounded bg-slate-100 px-1 dark:bg-slate-800">docs/evm-anchor.md</code>) to enable the live explorer.
+        <code className="rounded bg-slate-100 px-1 dark:bg-slate-800">docs/evm-anchor.md</code>) to enable the block explorer.
       </p>
+    );
+  } else {
+    chainSection = (
+      <div className="space-y-6">
+        <ChainStatus snapshot={data} lastUpdated={lastUpdated} stale={stale} />
+
+        <div className="grid gap-4 lg:grid-cols-3">
+          <BlockTimeChart blocks={data.blocks} />
+          <GasUsageChart blocks={data.blocks} />
+          <AnchorsChart blocks={data.blocks} anchors={data.anchors} />
+        </div>
+
+        <BlockChain blocks={data.blocks} anchors={data.anchors} ipfsGatewayUrl={data.ipfsGatewayUrl} />
+        <AnchorFeed anchors={data.anchors} ipfsGatewayUrl={data.ipfsGatewayUrl} />
+      </div>
     );
   }
 
-  const stale = !!error || (lastUpdated !== null && Date.now() - lastUpdated > STALE_AFTER_MS);
-
   return (
     <div className="space-y-6">
-      <ChainStatus snapshot={data} lastUpdated={lastUpdated} stale={stale} />
-
-      <div className="grid gap-4 lg:grid-cols-3">
-        <BlockTimeChart blocks={data.blocks} />
-        <GasUsageChart blocks={data.blocks} />
-        <AnchorsChart blocks={data.blocks} anchors={data.anchors} />
-      </div>
-
-      <div className="grid gap-6 lg:grid-cols-2">
-        <BlockList blocks={data.blocks} />
-        <AnchorFeed anchors={data.anchors} ipfsGatewayUrl={data.ipfsGatewayUrl} />
-      </div>
+      {chainSection}
+      <ActivityConsole />
     </div>
   );
 }

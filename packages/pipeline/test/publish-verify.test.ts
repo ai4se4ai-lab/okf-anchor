@@ -101,6 +101,43 @@ describe.runIf(process.env["RUN_DB_TESTS"] !== "0")("publish → verify → tamp
     expect(result.verificationUrl).toContain(`/verify/${result.assetId}`);
   });
 
+  it("emits a structured onEvent stream covering every layer, with no secret", async () => {
+    if (!dbUp) return;
+    const server = await prisma.buildServer.findUniqueOrThrow({
+      where: { publisherId: `build-server:${RUN}` },
+    });
+    const events: Array<{ phase: string; level: string; layer?: string; message: string; detail?: Record<string, unknown> }> = [];
+
+    await publishBundle(
+      {
+        archive: zipOf(fixtureFiles("ref-ga4")),
+        buildServerId: server.id,
+        publisherId: server.publisherId,
+        assetSlug: `events-${RUN}`,
+        name: "Events",
+      },
+      { prisma, providers, onEvent: (e) => void events.push(e) },
+    );
+
+    const phases = events.map((e) => e.phase);
+    for (const expected of ["validate", "canonicalize", "graph", "store", "sign", "anchor-submit", "anchor-confirm", "persist"]) {
+      expect(phases).toContain(expected);
+    }
+    expect(events.some((e) => e.layer === "storage" && typeof e.detail?.["cid"] === "string")).toBe(true);
+    expect(events.some((e) => e.phase === "anchor-submit" && typeof e.detail?.["commitmentHash"] === "string")).toBe(true);
+    expect(events.some((e) => e.phase === "sign" && typeof e.detail?.["publicKeyHex"] === "string")).toBe(true);
+
+    // No emitted event may carry a private key / token — by key name or by content.
+    const blob = JSON.stringify(events);
+    expect(blob).not.toMatch(/private[_-]?key/i);
+    expect(blob).not.toMatch(/-----BEGIN/);
+    for (const e of events) {
+      for (const key of Object.keys(e.detail ?? {})) {
+        expect(key).not.toMatch(/token|secret|private[_-]?key|mnemonic|seed|passphrase/i);
+      }
+    }
+  });
+
   it("is idempotent: re-publishing identical bytes returns the same version, no new anchor", async () => {
     if (!dbUp) return;
     const server = await prisma.buildServer.findUniqueOrThrow({
