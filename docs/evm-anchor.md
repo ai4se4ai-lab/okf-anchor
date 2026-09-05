@@ -8,18 +8,26 @@ graph, or any PII (CLAUDE.md §2, §8; skill: okf-blockchain-anchor).
 
 ## Start Anvil
 
-Anvil runs as a Compose service behind the `chain` profile, so plain `docker compose up -d`
-still runs the whole pipeline offline with no external network:
+Anvil is a plain Compose service (no profile), so `docker compose up -d` starts it —
+and everything else — every time, offline, alongside `STORAGE_PROVIDER=local` /
+`ANCHOR_PROVIDER=local` still working with no external network:
 
 ```bash
-docker compose --profile chain up -d chain
+docker compose up -d chain
 ```
 
-This starts `ghcr.io/foundry-rs/foundry:v1.0.0` running `anvil --chain-id 31337
---block-time 1`, RPC on the host at `http://localhost:58545`. The app and worker
-containers always talk to it over the compose network as `http://chain:8545`
-(hardcoded in `docker-compose.yml`), regardless of what `.env` sets `EVM_RPC_URL` to —
-same convention as `IPFS_API_URL` (see `docs/ipfs.md`).
+This starts `ghcr.io/foundry-rs/foundry:v1.0.0` running `anvil --chain-id 31337`, RPC on
+the host at `http://localhost:58545`. The app and worker containers always talk to it
+over the compose network as `http://chain:8545` (hardcoded in `docker-compose.yml`),
+regardless of what `.env` sets `EVM_RPC_URL` to — same convention as `IPFS_API_URL`
+(see `docs/ipfs.md`).
+
+No `--block-time`: Anvil mines one block per transaction, instantly, which is all
+`EVM_CONFIRMATIONS=1` (the only value `.env.example` and the test suite exercise) needs.
+Raising `EVM_CONFIRMATIONS` above 1 requires blocks to keep landing *after* the anchoring
+transaction too — either real transaction traffic on the chain, or restart `chain` with
+`command: ["--host", "0.0.0.0", "--chain-id", "31337", "--block-time", "1"]` added back in
+a local override, otherwise `anchor()` will wait for confirmations that never arrive.
 
 ## Deploy the contract (one time per chain)
 

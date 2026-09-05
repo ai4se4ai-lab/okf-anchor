@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
 import { apiError, bundleResponse } from "@/server/api";
 import { retrieveBundle } from "@/server/assets";
+import { createLogger } from "@okf-anchor/logger";
+
+const log = createLogger("api");
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -20,7 +23,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
     if (!bundle) return apiError("NOT_FOUND", "asset, version, or stored bundle not found", 404);
     return bundleResponse(bundle);
   } catch (err) {
-    console.error("[api] bundle retrieval failed", err);
+    log.error("bundle retrieval failed", { assetId: id, err });
     return apiError("STORAGE_UNAVAILABLE", "the storage backend is unavailable", 503);
   }
 }

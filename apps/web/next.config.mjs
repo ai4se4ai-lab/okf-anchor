@@ -8,6 +8,7 @@ const nextConfig = {
     "@okf-anchor/pipeline",
     "@okf-anchor/db",
     "@okf-anchor/queue",
+    "@okf-anchor/logger",
   ],
   serverExternalPackages: ["oxigraph", "bullmq", "ioredis", "@prisma/client", ".prisma/client"],
   outputFileTracingIncludes: {

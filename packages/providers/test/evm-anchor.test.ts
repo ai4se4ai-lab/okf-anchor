@@ -8,7 +8,15 @@
  */
 import { createPublicClient, http, isHex, type Hex } from "viem";
 import { beforeAll, describe, expect, it } from "vitest";
-import { assetIdToBytes32, createProviders, EvmAnchorProvider, type Commitment, type Providers } from "../src/index.js";
+import {
+  assetIdToBytes32,
+  createProviders,
+  EvmAnchorProvider,
+  MAX_LIVE_ANCHORS,
+  MAX_LIVE_BLOCKS,
+  type Commitment,
+  type Providers,
+} from "../src/index.js";
 
 const EVM_RPC_URL = process.env["EVM_RPC_URL"] ?? "http://localhost:58545";
 const EVM_ANCHOR_CONTRACT_ADDRESS = process.env["EVM_ANCHOR_CONTRACT_ADDRESS"];
@@ -153,6 +161,42 @@ describe("EvmAnchorProvider (real Anvil)", () => {
     },
     20_000,
   );
+
+  it(
+    "getLiveSnapshot returns recent blocks and the anchors written to them",
+    async () => {
+      if (!chainUp || !providers) return;
+      const evm = providers.anchor as EvmAnchorProvider;
+      const commitment = makeCommitment();
+      const ref = await evm.anchor(commitment);
+
+      const snapshot = await evm.getLiveSnapshot({ blockCount: 5, anchorCount: 5 });
+      expect(snapshot.chainId).toBe(31337);
+      expect(snapshot.network).toBe("eip155:31337");
+      expect(snapshot.blocks.length).toBeGreaterThan(0);
+      expect(snapshot.blocks.length).toBeLessThanOrEqual(5);
+      // Descending by block number, most recent first.
+      for (let i = 1; i < snapshot.blocks.length; i++) {
+        expect(snapshot.blocks[i]!.number).toBeLessThan(snapshot.blocks[i - 1]!.number);
+      }
+      expect(snapshot.latestBlockNumber).toBe(snapshot.blocks[0]!.number);
+
+      const anchoredTxHash = ref.ref;
+      const found = snapshot.anchors.find((a) => a.transactionHash.toLowerCase() === anchoredTxHash.toLowerCase());
+      expect(found).toBeTruthy();
+      expect(found!.bundleCid).toBe(commitment.storageCid);
+      expect(found!.versionNumber).toBe(commitment.versionNumber);
+    },
+    TX_TIMEOUT_MS,
+  );
+
+  it("getLiveSnapshot clamps out-of-range counts instead of trusting the caller", async () => {
+    if (!chainUp || !providers) return;
+    const evm = providers.anchor as EvmAnchorProvider;
+    const snapshot = await evm.getLiveSnapshot({ blockCount: 10_000, anchorCount: -5 });
+    expect(snapshot.blocks.length).toBeLessThanOrEqual(MAX_LIVE_BLOCKS);
+    expect(snapshot.anchors.length).toBeLessThanOrEqual(MAX_LIVE_ANCHORS);
+  });
 });
 
 describe("assetIdToBytes32 (pure, no network)", () => {

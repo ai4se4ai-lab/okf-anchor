@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@okf-anchor/db": "workspace:*",
+    "@okf-anchor/logger": "workspace:*",
     "@okf-anchor/pipeline": "workspace:*",
     "@okf-anchor/providers": "workspace:*",
     "@okf-anchor/queue": "workspace:*"

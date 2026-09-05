@@ -13,6 +13,7 @@ WORKDIR /app
 FROM base AS deps
 COPY pnpm-lock.yaml pnpm-workspace.yaml package.json .npmrc ./
 COPY packages/okf-core/package.json      packages/okf-core/
+COPY packages/logger/package.json        packages/logger/
 COPY packages/providers/package.json     packages/providers/
 COPY packages/db/package.json            packages/db/
 COPY packages/queue/package.json         packages/queue/
@@ -34,7 +35,17 @@ RUN pnpm --filter @okf-anchor/db generate \
 # ---- runner: Next standalone + the worker bundle ----
 FROM base AS runner
 ENV NODE_ENV=production
+# Prisma's query engine needs libssl at runtime; node:22-bookworm-slim doesn't ship
+# it, so Prisma falls back to a guessed openssl version and warns on every start.
+RUN apt-get update && apt-get install -y --no-install-recommends openssl \
+ && rm -rf /var/lib/apt/lists/*
 RUN useradd --system --uid 1001 okf
+# WORKDIR /app is root-owned (created before `useradd`, above); the local
+# GraphProvider and any local-fallback provider write under OKF_DATA_DIR
+# (default /app/.data) at runtime as the non-root `okf` user, so that one
+# directory needs to exist pre-chowned — everything else below is `--chown=okf`
+# per COPY already.
+RUN mkdir -p /app/.data && chown okf:okf /app/.data
 COPY --from=build --chown=okf /app/node_modules ./node_modules
 COPY --from=build --chown=okf /app/package.json ./package.json
 COPY --from=build --chown=okf /app/packages ./packages

@@ -55,6 +55,50 @@ export interface EvmAnchorOptions {
   readonly requestTimeoutMs: number;
 }
 
+/** One block, for the read-only live-chain explorer view — never anything but public chain metadata. */
+export interface EvmBlockSummary {
+  readonly number: number;
+  readonly hash: Hex;
+  readonly parentHash: Hex;
+  readonly timestampSec: number;
+  readonly gasUsed: number;
+  readonly gasLimit: number;
+  readonly transactionCount: number;
+  readonly miner: Address;
+}
+
+/** One decoded `Anchored` event — the on-chain commitment plus the `bundleCid` it points at. */
+export interface EvmAnchorEventSummary {
+  readonly assetIdHash: Hex;
+  readonly versionNumber: number;
+  readonly commitment: Hex;
+  readonly bundleCid: string;
+  readonly publisher: Address;
+  readonly blockNumber: number;
+  readonly transactionHash: Hex;
+  readonly timestampSec: number;
+}
+
+export interface EvmChainSnapshot {
+  readonly chainId: number;
+  readonly network: string;
+  readonly contractAddress: Address;
+  readonly latestBlockNumber: number;
+  readonly blocks: EvmBlockSummary[];
+  readonly anchors: EvmAnchorEventSummary[];
+}
+
+/** Hard ceilings so a client-supplied count can never trigger an unbounded RPC fan-out (CLAUDE.md §3). */
+export const MAX_LIVE_BLOCKS = 50;
+export const MAX_LIVE_ANCHORS = 30;
+/** How far back `getLiveSnapshot` scans for `Anchored` events — bounded so a long-lived chain never forces a full-history log scan. */
+const ANCHOR_LOOKBACK_BLOCKS = 5_000n;
+
+function clampCount(n: number, max: number): number {
+  if (!Number.isFinite(n)) return 1;
+  return Math.min(Math.max(Math.floor(n), 1), max);
+}
+
 /** `assetId` is an opaque string (a Prisma cuid); the contract only accepts `bytes32`. */
 export function assetIdToBytes32(assetId: string): Hex {
   return keccak256(stringToHex(assetId));
@@ -221,6 +265,74 @@ export class EvmAnchorProvider implements AnchorProvider {
       confirmations,
       committedHash,
       blockNumber: Number(receipt.blockNumber),
+    };
+  }
+
+  /**
+   * Read-only snapshot for the live-chain explorer UI: the most recent blocks
+   * plus the most recent decoded `Anchored` events (each carrying the
+   * `bundleCid` it points at). Never anything beyond public chain data — no
+   * knowledge-graph content, no PII (CLAUDE.md §2). Counts are clamped
+   * server-side regardless of what a caller requests.
+   */
+  async getLiveSnapshot(opts: { blockCount: number; anchorCount: number }): Promise<EvmChainSnapshot> {
+    const blockCount = clampCount(opts.blockCount, MAX_LIVE_BLOCKS);
+    const anchorCount = clampCount(opts.anchorCount, MAX_LIVE_ANCHORS);
+
+    const latest = await this.publicClient.getBlockNumber();
+    const oldestWanted = latest >= BigInt(blockCount - 1) ? latest - BigInt(blockCount - 1) : 0n;
+    const blockNumbers: bigint[] = [];
+    for (let n = latest; n >= oldestWanted; n--) blockNumbers.push(n);
+
+    const [rawBlocks, logs] = await Promise.all([
+      Promise.all(blockNumbers.map((number) => this.publicClient.getBlock({ blockNumber: number }))),
+      this.publicClient.getContractEvents({
+        address: this.contractAddress,
+        abi: OKF_ANCHOR_ABI,
+        eventName: "Anchored",
+        fromBlock: latest > ANCHOR_LOOKBACK_BLOCKS ? latest - ANCHOR_LOOKBACK_BLOCKS : 0n,
+        toBlock: "latest",
+      }),
+    ]);
+
+    const recentLogs = logs.slice(-anchorCount).reverse();
+    const uniqueAnchorBlocks = [...new Set(recentLogs.map((log) => log.blockNumber))];
+    const anchorBlockTimestamps = new Map(
+      await Promise.all(
+        uniqueAnchorBlocks.map(
+          async (blockNumber): Promise<[bigint, number]> => [
+            blockNumber,
+            Number((await this.publicClient.getBlock({ blockNumber })).timestamp),
+          ],
+        ),
+      ),
+    );
+
+    return {
+      chainId: this.chain.id,
+      network: this.network,
+      contractAddress: this.contractAddress,
+      latestBlockNumber: Number(latest),
+      blocks: rawBlocks.map((b) => ({
+        number: Number(b.number),
+        hash: b.hash ?? "0x",
+        parentHash: b.parentHash,
+        timestampSec: Number(b.timestamp),
+        gasUsed: Number(b.gasUsed),
+        gasLimit: Number(b.gasLimit),
+        transactionCount: b.transactions.length,
+        miner: b.miner,
+      })),
+      anchors: recentLogs.map((log) => ({
+        assetIdHash: log.args.assetId as Hex,
+        versionNumber: Number(log.args.version),
+        commitment: log.args.commitment as Hex,
+        bundleCid: log.args.bundleCid ?? "",
+        publisher: log.args.publisher as Address,
+        blockNumber: Number(log.blockNumber),
+        transactionHash: log.transactionHash,
+        timestampSec: anchorBlockTimestamps.get(log.blockNumber) ?? 0,
+      })),
     };
   }
 }

@@ -26,9 +26,14 @@ export {
 } from "./anchor.js";
 export {
   type EvmAnchorOptions,
+  type EvmBlockSummary,
+  type EvmAnchorEventSummary,
+  type EvmChainSnapshot,
   EvmAnchorProvider,
   OKF_ANCHOR_ABI,
   assetIdToBytes32,
+  MAX_LIVE_BLOCKS,
+  MAX_LIVE_ANCHORS,
 } from "./evm-anchor.js";
 export {
   type GraphProvider,

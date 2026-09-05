@@ -4,7 +4,10 @@
  */
 import { NextResponse } from "next/server";
 import { OkfError } from "@okf-anchor/okf-core";
+import { createLogger } from "@okf-anchor/logger";
 import type { RetrievedBundle } from "./assets";
+
+const log = createLogger("api");
 
 export interface ApiErrorBody {
   error: { code: string; message: string; details?: string[] };
@@ -30,7 +33,7 @@ export function fromOkfError(err: unknown): NextResponse<ApiErrorBody> {
   if (err instanceof Error && /not_?found|no record/i.test(err.message)) {
     return apiError("NOT_FOUND", "resource not found", 404);
   }
-  console.error("[api] unhandled error", err);
+  log.error("unhandled error", { err });
   return apiError("INTERNAL", "an unexpected error occurred", 500);
 }
 

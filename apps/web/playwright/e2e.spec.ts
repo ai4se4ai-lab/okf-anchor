@@ -86,6 +86,18 @@ test.describe("OKF Anchor end-to-end", () => {
     expect(badReport.changedFiles).toContain("icse/seet-2027/topics.md");
   });
 
+  test("live chain page renders and is accessible", async ({ page }) => {
+    await page.goto("/chain");
+    await expect(page.getByRole("heading", { name: "Live chain" })).toBeVisible();
+    // Either a live EVM feed (ANCHOR_PROVIDER=evm) or the graceful "not configured"
+    // message (default ANCHOR_PROVIDER=local) — both are valid, never a crash.
+    await expect(page.getByText(/Live$/).or(page.getByText(/No live EVM chain configured/))).toBeVisible({
+      timeout: 15_000,
+    });
+    const results = await new AxeBuilder({ page }).analyze();
+    expect(results.violations).toEqual([]);
+  });
+
   test("public verification page shows VERIFIED for a freshly minted asset", async ({ page, request }) => {
     const slug = `e2e-page-${Date.now()}`;
     const pub = await request.post("/api/v1/bundles", {

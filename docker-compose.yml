@@ -80,7 +80,11 @@ services:
     image: ghcr.io/foundry-rs/foundry:v1.0.0
     restart: unless-stopped
     entrypoint: ["anvil"]
-    command: ["--host", "0.0.0.0", "--chain-id", "31337", "--block-time", "1"]
+    # No --block-time: Anvil's default (mine one block per transaction, instantly)
+    # is all EVM_CONFIRMATIONS=1 (the only supported value today — .env.example,
+    # docs/evm-anchor.md) needs, and a fixed interval logs a full block report every
+    # tick forever, drowning out every other service's logs in `docker compose up`.
+    command: ["--host", "0.0.0.0", "--chain-id", "31337"]
     ports:
       - "58545:8545"
     healthcheck:
@@ -144,6 +148,10 @@ services:
       # host-side .env typically sets EVM_RPC_URL to the host-mapped
       # 127.0.0.1:58545, unreachable from inside this container).
       EVM_RPC_URL: http://chain:8545
+      # A container's stdout is a pipe, not a TTY, so both Next.js's own CLI
+      # colors and @okf-anchor/logger's ANSI colors would otherwise auto-disable
+      # even though `docker compose up` forwards them to a real terminal.
+      FORCE_COLOR: "1"
     ports:
       # Web app reachable at http://localhost:3002
       - "3002:3000"
@@ -179,6 +187,9 @@ services:
       # host-side .env typically sets EVM_RPC_URL to the host-mapped
       # 127.0.0.1:58545, unreachable from inside this container).
       EVM_RPC_URL: http://chain:8545
+      # See the same setting on `app` above: forces @okf-anchor/logger's ANSI
+      # colors on despite the container's stdout being a non-TTY pipe.
+      FORCE_COLOR: "1"
     depends_on:
       postgres:
         condition: service_healthy

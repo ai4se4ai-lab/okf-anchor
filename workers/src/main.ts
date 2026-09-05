@@ -7,15 +7,18 @@ import { prisma } from "@okf-anchor/db";
 import { createProviders } from "@okf-anchor/providers";
 import { runMintJob } from "@okf-anchor/pipeline";
 import { createMintWorker } from "@okf-anchor/queue";
+import { createLogger } from "@okf-anchor/logger";
 
+const log = createLogger("worker");
 const providers = createProviders();
 const publicBaseUrl = process.env["OKF_PUBLIC_BASE_URL"];
 
 const worker = createMintWorker(async (job) => {
   const { mintJobId } = job.data;
-  console.warn(`[mint] start job=${mintJobId}`);
+  const jobLog = log.child({ mintJobId });
+  jobLog.info("mint job started");
   const result = await runMintJob(mintJobId, { prisma, providers, publicBaseUrl });
-  console.warn(`[mint] done job=${mintJobId} state=${result.state}`);
+  jobLog.info("mint job finished", { state: result.state });
   if (result.state === "FAILED") {
     throw new Error(result.error ?? "mint failed");
   }
@@ -29,12 +32,13 @@ const worker = createMintWorker(async (job) => {
 });
 
 worker.on("failed", (job, err) => {
-  console.error(`[mint] job ${job?.id} failed: ${err.message}`);
+  log.error("mint job failed", { mintJobId: job?.id, err });
 });
 
-console.warn("okf mint worker ready");
+log.info("worker ready", { queue: "okf:mint" });
 
 async function shutdown(): Promise<void> {
+  log.info("shutting down");
   await worker.close();
   await prisma.$disconnect();
   process.exit(0);
