@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { prisma, providers } from "@/server/providers";
+import { prisma, providers, ipfsGatewayUrl } from "@/server/providers";
+import { assetSummary } from "@/server/assets";
 import { verifyStoredVersion } from "@okf-anchor/pipeline";
 import { CheckRow, Hash } from "@/components/checks";
 
@@ -18,6 +19,9 @@ export default async function VerifyAssetPage({ params }: { params: Promise<{ as
   } catch {
     notFound();
   }
+  const summary = await assetSummary(assetId);
+  const storageProvider = summary?.currentVersion?.storageProvider ?? null;
+  const sourceCid = summary?.currentVersion?.storageCids?.["SOURCE_ARCHIVE"];
 
   return (
     <div className="mx-auto max-w-2xl space-y-6">
@@ -66,6 +70,31 @@ export default async function VerifyAssetPage({ params }: { params: Promise<{ as
         <Hash label="Recomputed canonical hash" value={report.actual.canonicalHash || "—"} />
         <Hash label="Expected Merkle root" value={report.expected.merkleRoot} />
         <Hash label="Recomputed Merkle root" value={report.actual.merkleRoot || "—"} />
+      </div>
+
+      <div className="card">
+        <h2 className="mb-1 font-semibold">Storage</h2>
+        <p className="mb-2 text-xs text-slate-500">
+          Provider: <span className="font-medium">{storageProvider ?? "unknown"}</span>. IPFS availability does not
+          itself prove authenticity — authenticity is established above, by re-computing the OKF cryptographic
+          commitments and comparing them to the signed, blockchain-anchored state.
+        </p>
+        <Hash label="Source CID" value={sourceCid} />
+        <div className="mt-2 flex flex-wrap gap-3 text-xs">
+          <a href={`/api/public/assets/${report.assetId}/bundle`} className="underline">
+            Retrieve bundle
+          </a>
+          {ipfsGatewayUrl && storageProvider === "ipfs" && sourceCid && (
+            <a
+              href={`${ipfsGatewayUrl.replace(/\/$/, "")}/ipfs/${sourceCid}`}
+              target="_blank"
+              rel="noreferrer"
+              className="underline"
+            >
+              Open in IPFS gateway ↗
+            </a>
+          )}
+        </div>
       </div>
 
       <div className="flex gap-3 text-sm">

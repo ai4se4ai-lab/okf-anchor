@@ -16,3 +16,7 @@ export { prisma } from "@okf-anchor/db";
 
 export const publicBaseUrl =
   process.env.OKF_PUBLIC_BASE_URL ?? process.env.NEXTAUTH_URL ?? "http://localhost:3000";
+
+/** Browser-facing gateway link only — the server never fetches this URL itself
+ * (CLAUDE.md §3 SSRF rule); it just builds an "open in gateway" link for the UI. */
+export const ipfsGatewayUrl = process.env.IPFS_GATEWAY_URL ?? null;

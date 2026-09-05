@@ -50,6 +50,11 @@ jobs:
         ports: ["6379:6379"]
         options: >-
           --health-cmd "redis-cli ping" --health-interval 5s --health-timeout 3s --health-retries 20
+      ipfs:
+        image: ipfs/kubo:v0.32.1
+        ports: ["5001:5001"]
+        options: >-
+          --health-cmd "ipfs id || exit 1" --health-interval 10s --health-timeout 5s --health-retries 20
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -62,15 +67,27 @@ jobs:
         run: pnpm --filter @okf-anchor/db exec prisma migrate deploy
       - name: Integration tests (pipeline against Postgres)
         run: pnpm --filter @okf-anchor/pipeline run test
+      - name: Integration tests (providers + pipeline against real Kubo)
+        env:
+          IPFS_API_URL: http://localhost:5001
+        run: |
+          pnpm --filter @okf-anchor/providers run test
+          pnpm --filter @okf-anchor/pipeline run test
       - name: Build app + worker
         run: |
           pnpm --filter @okf-anchor/workers run build
           pnpm --filter @okf-anchor/web run build
-      - name: Playwright
+      - name: Playwright (local storage)
         run: |
           pnpm --filter @okf-anchor/web exec playwright install --with-deps chromium
           pnpm --filter @okf-anchor/db run seed
           pnpm --filter @okf-anchor/web run test:e2e
+      - name: Playwright (IPFS storage)
+        env:
+          STORAGE_PROVIDER: ipfs
+          IPFS_API_URL: http://localhost:5001
+          OKF_E2E_PORT: 3101
+        run: pnpm --filter @okf-anchor/web run test:e2e
 
   security-scan:
     runs-on: ubuntu-latest

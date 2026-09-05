@@ -6,6 +6,12 @@ export default defineConfig({
   testDir: "./playwright",
   timeout: 60_000,
   fullyParallel: false,
+  // One worker: multiple spec files publish bundles against the same shared
+  // Postgres/Redis backend, and POST /api/v1/bundles is rate-limited per
+  // publisher (server/ratelimit.ts) — running spec files concurrently trips
+  // that limiter and produces flaky 429s that have nothing to do with the
+  // feature under test.
+  workers: 1,
   retries: process.env.CI ? 1 : 0,
   reporter: process.env.CI ? "github" : "list",
   use: {

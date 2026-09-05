@@ -7,8 +7,16 @@ import { mkdir, readFile, writeFile, access } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { sha256Hex } from "@okf-anchor/okf-core";
 
-/** A content identifier. The local provider uses `okf1:<sha-256 hex>`. */
+/** A content identifier. The local provider uses `okf1:<sha-256 hex>`; the IPFS
+ * provider uses the real CID Kubo returns (`bafy...`). Callers must treat it as
+ * an opaque string — never parse or construct one outside the owning provider. */
 export type Cid = string;
+
+export interface StorageHealth {
+  readonly healthy: boolean;
+  readonly latencyMs: number;
+  readonly error?: string;
+}
 
 export interface StorageProvider {
   readonly kind: string;
@@ -16,6 +24,8 @@ export interface StorageProvider {
   get(cid: Cid): Promise<Uint8Array>;
   has(cid: Cid): Promise<boolean>;
   pin(cid: Cid): Promise<void>;
+  /** Cheap reachability check (never a full content fetch) for `/api/v1/storage/health`. */
+  health?(): Promise<StorageHealth>;
 }
 
 const LOCAL_PREFIX = "okf1:";
@@ -70,5 +80,16 @@ export class LocalStorageProvider implements StorageProvider {
 
   async pin(_cid: Cid): Promise<void> {
     // Local FS storage is always "pinned"; nothing to do.
+  }
+
+  async health(): Promise<StorageHealth> {
+    const start = Date.now();
+    try {
+      await mkdir(this.baseDir, { recursive: true });
+      await access(this.baseDir);
+      return { healthy: true, latencyMs: Date.now() - start };
+    } catch (err) {
+      return { healthy: false, latencyMs: Date.now() - start, error: (err as Error).message };
+    }
   }
 }

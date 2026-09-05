@@ -4,6 +4,7 @@
  */
 import { NextResponse } from "next/server";
 import { OkfError } from "@okf-anchor/okf-core";
+import type { RetrievedBundle } from "./assets";
 
 export interface ApiErrorBody {
   error: { code: string; message: string; details?: string[] };
@@ -57,4 +58,20 @@ export async function readArchive(req: Request): Promise<{ bytes: Uint8Array; fi
   }
   const filename = req.headers.get("x-okf-filename") ?? undefined;
   return filename ? { bytes: buf, filename } : { bytes: buf };
+}
+
+/** Serve a bundle retrieved through OKF Anchor (never a raw storage-provider URL). */
+export function bundleResponse(bundle: RetrievedBundle): NextResponse {
+  return new NextResponse(Buffer.from(bundle.bytes), {
+    status: 200,
+    headers: {
+      "content-type": bundle.mediaType,
+      "content-disposition": `attachment; filename="${bundle.filename.replace(/["\\]/g, "_")}"`,
+      "content-length": String(bundle.bytes.byteLength),
+      "x-okf-cid": bundle.cid,
+      "x-okf-storage-provider": bundle.storageProvider,
+      "x-okf-version-number": String(bundle.versionNumber),
+      "cache-control": "public, max-age=31536000, immutable",
+    },
+  });
 }

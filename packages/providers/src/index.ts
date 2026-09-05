@@ -5,10 +5,16 @@
  */
 export {
   type StorageProvider,
+  type StorageHealth,
   type Cid,
   LocalStorageProvider,
   localCidFor,
 } from "./storage.js";
+export {
+  type IpfsStorageOptions,
+  IpfsStorageProvider,
+  InvalidCidError,
+} from "./ipfs-storage.js";
 export {
   type AnchorProvider,
   type AnchorRef,

@@ -51,8 +51,12 @@ services:
     environment:
       IPFS_PROFILE: server
     ports:
-      - "55001:5001" # API
-      - "58080:8080" # gateway
+      # Bound to loopback only: the RPC API (5001) has full admin capabilities
+      # and must never reach the public Internet. The app talks to it over the
+      # compose network as http://ipfs:5001, not through this host mapping —
+      # this is for host-side dev tooling only.
+      - "127.0.0.1:55001:5001" # API
+      - "127.0.0.1:58080:8080" # gateway (read-only retrieval; still loopback-only in dev)
     volumes:
       - ipfs-data:/data/ipfs
     healthcheck:
@@ -88,6 +92,10 @@ services:
     environment:
       DATABASE_URL: postgresql://okf:okf_local_dev@postgres:5432/okf_anchor
       REDIS_URL: redis://redis:6379
+      # In-cluster Kubo hostname — always overridden here regardless of what a
+      # host-side .env sets IPFS_API_URL to (which is typically the host-mapped
+      # 127.0.0.1:55001, unreachable from inside this container).
+      IPFS_API_URL: http://ipfs:5001
     ports:
       # Web app reachable at http://localhost:3002
       - "3002:3000"
@@ -110,6 +118,10 @@ services:
     environment:
       DATABASE_URL: postgresql://okf:okf_local_dev@postgres:5432/okf_anchor
       REDIS_URL: redis://redis:6379
+      # In-cluster Kubo hostname — always overridden here regardless of what a
+      # host-side .env sets IPFS_API_URL to (which is typically the host-mapped
+      # 127.0.0.1:55001, unreachable from inside this container).
+      IPFS_API_URL: http://ipfs:5001
     depends_on:
       postgres:
         condition: service_healthy

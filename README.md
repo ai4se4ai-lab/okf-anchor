@@ -81,8 +81,9 @@ apps/web/         Next.js App Router — S2S API (/api/v1), public API, and the 
 Every provider ships a **local, offline implementation** selected by env
 (`STORAGE_PROVIDER` / `ANCHOR_PROVIDER` / `GRAPH_PROVIDER` / `SIGNER`, all `local` by
 default), so `docker compose up` runs the whole pipeline with no external network. Real
-IPFS (Kubo), EVM (anvil), and an external SPARQL store slot in behind the same interfaces
-via Compose profiles; an OriginTrail DKG adapter is stubbed pending SDK verification.
+IPFS (Kubo, `STORAGE_PROVIDER=ipfs` — see [`docs/ipfs.md`](docs/ipfs.md)), EVM (anvil),
+and an external SPARQL store slot in behind the same interfaces via Compose profiles; an
+OriginTrail DKG adapter is stubbed pending SDK verification.
 
 ---
 
@@ -106,11 +107,13 @@ Server‑to‑server (Bearer token, optional Ed25519 body signature):
 | `POST /api/v1/bundles/validate` | validate + hash only, no persistence |
 | `GET  /api/v1/mint-jobs/{id}` | mint state machine + the asset once `MINTED` |
 | `GET  /api/v1/assets/{id}` | hashes, CIDs, signature, anchor, version history |
+| `GET  /api/v1/assets/{id}/bundle` | retrieve the complete published bundle (`?version=n`) |
 | `POST /api/v1/assets/verify` | verify by id, or against an uploaded bundle |
 | `POST /api/v1/query` | read‑only SPARQL |
+| `GET  /api/v1/storage/health` | storage provider reachability (never a content fetch) |
 
-Public, unauthenticated: `GET /api/public/assets/{id}`, `.../verify`,
-`POST /api/public/query`, and the page `GET /verify/{assetId}`.
+Public, unauthenticated: `GET /api/public/assets/{id}`, `.../verify`, `.../bundle`,
+`POST /api/public/query`, and the pages `GET /verify/{assetId}` and `GET /assets/{id}`.
 
 Full spec: [`docs/integration/openapi.yaml`](docs/integration/openapi.yaml).
 MindPortalix wiring, curl one‑liners, and a reference client:
@@ -137,6 +140,17 @@ NEXTAUTH_SECRET=dev-only-change-me
 # ANCHOR_SIGNER_KEY_REF=...
 # SIGNER_PRIVATE_KEY_PEM=...
 # OKF_INLINE_MINT=1   # run the pipeline in-process (no separate worker), for dev/CI
+
+# --- IPFS (STORAGE_PROVIDER=ipfs; see docs/ipfs.md) ---
+# docker compose --profile ipfs up -d ipfs
+# STORAGE_PROVIDER=ipfs
+# IPFS_API_URL=http://localhost:55001
+# IPFS_GATEWAY_URL=http://localhost:58080
+# IPFS_PIN_ON_PUBLISH=true
+# IPFS_CONNECT_TIMEOUT_MS=5000
+# IPFS_REQUEST_TIMEOUT_MS=30000
+# IPFS_RETRIEVE_TIMEOUT_MS=60000
+# IPFS_MAX_BUNDLE_SIZE_MB=100
 ```
 
 Signer key material is referenced by `*_KEY_REF` and lives in a secrets manager — never
