@@ -25,6 +25,42 @@ test.describe("OKF Anchor end-to-end", () => {
     expect(results.violations).toEqual([]);
   });
 
+  test("theme toggle switches light/dark/system and persists across pages", async ({ page }) => {
+    await page.goto("/dashboard");
+    const group = page.getByRole("radiogroup", { name: "Colour theme" });
+    await expect(group).toBeVisible();
+
+    const html = page.locator("html");
+    const dark = page.getByRole("radio", { name: "Dark theme" });
+    const light = page.getByRole("radio", { name: "Light theme" });
+
+    await dark.click();
+    await expect(html).toHaveClass(/(^|\s)dark(\s|$)/);
+    await expect(dark).toHaveAttribute("aria-checked", "true");
+
+    await light.click();
+    await expect(html).not.toHaveClass(/(^|\s)dark(\s|$)/);
+    await expect(light).toHaveAttribute("aria-checked", "true");
+
+    // Choice survives a navigation (localStorage + pre-paint script).
+    await dark.click();
+    await page.goto("/query");
+    await expect(page.locator("html")).toHaveClass(/(^|\s)dark(\s|$)/);
+    await expect(page.getByRole("radio", { name: "Dark theme" })).toHaveAttribute("aria-checked", "true");
+
+    // "System" follows the emulated OS preference.
+    await page.emulateMedia({ colorScheme: "light" });
+    await page.getByRole("radio", { name: "System theme" }).click();
+    await expect(page.locator("html")).not.toHaveClass(/(^|\s)dark(\s|$)/);
+    await page.emulateMedia({ colorScheme: "dark" });
+    await expect(page.locator("html")).toHaveClass(/(^|\s)dark(\s|$)/);
+    await page.emulateMedia({ colorScheme: null });
+
+    await page.getByRole("radio", { name: "Light theme" }).click();
+    const results = await new AxeBuilder({ page }).analyze();
+    expect(results.violations).toEqual([]);
+  });
+
   test("query page rejects a write query and runs a read query", async ({ page }) => {
     await page.goto("/query");
     await page.getByRole("button", { name: "Run query" }).click();

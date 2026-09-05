@@ -2,6 +2,9 @@ import type { Config } from "tailwindcss";
 
 export default {
   content: ["./src/**/*.{ts,tsx}"],
+  // Manual light/dark/system toggle (ThemeProvider) drives a `dark` class on
+  // <html>; "system" resolves via prefers-color-scheme at runtime.
+  darkMode: "class",
   theme: {
     extend: {
       fontFamily: {
