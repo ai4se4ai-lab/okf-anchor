@@ -25,6 +25,12 @@ export {
   LocalAnchorProvider,
 } from "./anchor.js";
 export {
+  type EvmAnchorOptions,
+  EvmAnchorProvider,
+  OKF_ANCHOR_ABI,
+  assetIdToBytes32,
+} from "./evm-anchor.js";
+export {
   type GraphProvider,
   type QueryOptions,
   type SparqlResult,

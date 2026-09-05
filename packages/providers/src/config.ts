@@ -6,7 +6,9 @@
  * without any change to the pipeline code that consumes the interfaces.
  */
 import { join } from "node:path";
+import type { Address, Hex } from "viem";
 import { LocalAnchorProvider, type AnchorProvider } from "./anchor.js";
+import { EvmAnchorProvider } from "./evm-anchor.js";
 import { LocalGraphProvider, type GraphProvider } from "./graph.js";
 import { LocalStorageProvider, type StorageProvider } from "./storage.js";
 import { IpfsStorageProvider } from "./ipfs-storage.js";
@@ -26,6 +28,13 @@ export interface ProviderEnv {
   IPFS_REQUEST_TIMEOUT_MS?: string;
   IPFS_RETRIEVE_TIMEOUT_MS?: string;
   IPFS_MAX_BUNDLE_SIZE_MB?: string;
+  // --- EVM (ANCHOR_PROVIDER=evm) ---
+  EVM_RPC_URL?: string;
+  EVM_CHAIN_ID?: string;
+  EVM_ANCHOR_CONTRACT_ADDRESS?: string;
+  EVM_SIGNER_PRIVATE_KEY?: string;
+  EVM_CONFIRMATIONS?: string;
+  EVM_REQUEST_TIMEOUT_MS?: string;
 }
 
 function parsePositiveInt(raw: string | undefined, fallback: number): number {
@@ -73,7 +82,21 @@ export function createProviders(env: ProviderEnv = process.env): Providers {
     switch (env.ANCHOR_PROVIDER ?? "local") {
       case "local":
         return new LocalAnchorProvider(join(dataDir, "anchor", "ledger.json"));
-      // case "evm": return new EvmAnchorProvider(...)  — verify viem/contract ABI first
+      case "evm": {
+        const rpcUrl = env.EVM_RPC_URL ?? "http://localhost:8545";
+        const contractAddress = env.EVM_ANCHOR_CONTRACT_ADDRESS;
+        const privateKey = env.EVM_SIGNER_PRIVATE_KEY;
+        if (!contractAddress) throw new Error("EVM_ANCHOR_CONTRACT_ADDRESS is required for ANCHOR_PROVIDER=evm");
+        if (!privateKey) throw new Error("EVM_SIGNER_PRIVATE_KEY is required for ANCHOR_PROVIDER=evm");
+        return new EvmAnchorProvider({
+          rpcUrl,
+          chainId: parsePositiveInt(env.EVM_CHAIN_ID, 31337),
+          contractAddress: contractAddress as Address,
+          privateKey: privateKey as Hex,
+          confirmations: parsePositiveInt(env.EVM_CONFIRMATIONS, 1),
+          requestTimeoutMs: parsePositiveInt(env.EVM_REQUEST_TIMEOUT_MS, 30_000),
+        });
+      }
       // case "dkg": return new OriginTrailDkgAnchorProvider(...)  — verify dkg.js types first
       default:
         throw new Error(`unknown ANCHOR_PROVIDER: ${env.ANCHOR_PROVIDER}`);

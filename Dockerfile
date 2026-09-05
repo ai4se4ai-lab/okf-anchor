@@ -4,7 +4,9 @@
 
 FROM node:22.12.0-bookworm-slim AS base
 ENV PNPM_HOME=/pnpm PATH=/pnpm:$PATH
-RUN corepack enable
+# The corepack bundled with this Node image predates pnpm's current signing key and
+# fails "Cannot find matching keyid" on install; update corepack itself before enabling.
+RUN npm install -g corepack@latest && corepack enable
 WORKDIR /app
 
 # ---- deps: install with the lockfile, no scripts we did not vet ----
@@ -38,10 +40,16 @@ COPY --from=build --chown=okf /app/package.json ./package.json
 COPY --from=build --chown=okf /app/packages ./packages
 COPY --from=build --chown=okf /app/workers/dist ./workers/dist
 COPY --from=build --chown=okf /app/workers/package.json ./workers/package.json
+# pnpm's isolated node-linker puts each workspace member's own deps (incl. its
+# @okf-anchor/* workspace symlinks) in that member's own node_modules, not root's —
+# both are needed at runtime alongside the root ./node_modules copied above.
+COPY --from=build --chown=okf /app/workers/node_modules ./workers/node_modules
 COPY --from=build --chown=okf /app/apps/web/.next ./apps/web/.next
 COPY --from=build --chown=okf /app/apps/web/public ./apps/web/public
 COPY --from=build --chown=okf /app/apps/web/package.json ./apps/web/package.json
+COPY --from=build --chown=okf /app/apps/web/node_modules ./apps/web/node_modules
 USER okf
 EXPOSE 3000
 # `app` service overrides this with `next start`; `worker` service overrides with the worker.
-CMD ["node", "apps/web/node_modules/next/dist/bin/next", "start", "-p", "3000"]
+# The trailing "apps/web" tells Next which project directory to serve since CWD is /app.
+CMD ["node", "apps/web/node_modules/next/dist/bin/next", "start", "apps/web", "-p", "3000"]

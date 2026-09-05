@@ -81,9 +81,10 @@ apps/web/         Next.js App Router — S2S API (/api/v1), public API, and the 
 Every provider ships a **local, offline implementation** selected by env
 (`STORAGE_PROVIDER` / `ANCHOR_PROVIDER` / `GRAPH_PROVIDER` / `SIGNER`, all `local` by
 default), so `docker compose up` runs the whole pipeline with no external network. Real
-IPFS (Kubo, `STORAGE_PROVIDER=ipfs` — see [`docs/ipfs.md`](docs/ipfs.md)), EVM (anvil),
-and an external SPARQL store slot in behind the same interfaces via Compose profiles; an
-OriginTrail DKG adapter is stubbed pending SDK verification.
+IPFS (Kubo, `STORAGE_PROVIDER=ipfs` — see [`docs/ipfs.md`](docs/ipfs.md)), EVM (Anvil,
+`ANCHOR_PROVIDER=evm` — see [`docs/evm-anchor.md`](docs/evm-anchor.md)), and an external
+SPARQL store slot in behind the same interfaces via Compose profiles; an OriginTrail DKG
+adapter is stubbed pending SDK verification.
 
 ---
 
@@ -136,8 +137,6 @@ SIGNER=local
 OKF_DATA_DIR=./.data/okf
 OKF_PUBLIC_BASE_URL=http://localhost:3000
 NEXTAUTH_SECRET=dev-only-change-me
-# Optional dev EVM key for ANCHOR_PROVIDER=evm — never in production:
-# ANCHOR_SIGNER_KEY_REF=...
 # SIGNER_PRIVATE_KEY_PEM=...
 # OKF_INLINE_MINT=1   # run the pipeline in-process (no separate worker), for dev/CI
 
@@ -151,6 +150,16 @@ NEXTAUTH_SECRET=dev-only-change-me
 # IPFS_REQUEST_TIMEOUT_MS=30000
 # IPFS_RETRIEVE_TIMEOUT_MS=60000
 # IPFS_MAX_BUNDLE_SIZE_MB=100
+
+# --- EVM (ANCHOR_PROVIDER=evm; see docs/evm-anchor.md) ---
+# docker compose --profile chain up -d chain, then pnpm contracts:deploy:anvil
+# ANCHOR_PROVIDER=evm
+# EVM_RPC_URL=http://localhost:58545
+# EVM_CHAIN_ID=31337
+# EVM_ANCHOR_CONTRACT_ADDRESS=
+# EVM_SIGNER_PRIVATE_KEY=0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80  # Anvil's public dev account #0 — dev only
+# EVM_CONFIRMATIONS=1
+# EVM_REQUEST_TIMEOUT_MS=30000
 ```
 
 Signer key material is referenced by `*_KEY_REF` and lives in a secrets manager — never

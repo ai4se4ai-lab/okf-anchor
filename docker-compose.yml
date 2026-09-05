@@ -1,12 +1,24 @@
 # OKF Anchor local development stack (skill: okf-docker-dev).
 #
-#   docker compose up -d                      # postgres + redis (offline pipeline)
-#   docker compose --profile ipfs up -d       # + Kubo IPFS  (STORAGE_PROVIDER=ipfs)
-#   docker compose --profile chain up -d      # + anvil EVM  (ANCHOR_PROVIDER=evm)
-#   docker compose --profile app up -d --build# + the app image
+#   docker compose up -d --build   # everything: postgres, redis, Kubo IPFS, anvil EVM,
+#                                   # Prisma migrations, the OKFAnchor contract deploy,
+#                                   # the app, and the worker.
 #
-# Default *_PROVIDER=local means the full validate→canonicalize→hash→graph→store→
-# anchor pipeline runs with only postgres + redis and no external network.
+# No profiles: this is the one-command bring-up. `--build` is only needed to pick up
+# code changes on a rebuild — the very first run builds automatically since no image
+# exists yet.
+#
+# Every *_PROVIDER switch in .env (local | ipfs | evm | ...) still only changes which
+# backend the app *talks to* at runtime — it never changes which containers start.
+# `STORAGE_PROVIDER=local`/`ANCHOR_PROVIDER=local` still works with no external network;
+# the ipfs/chain/contracts services just sit there unused in that case.
+#
+# `contracts` deploys OKFAnchor to `chain` once it's healthy, as the deployer's very
+# first transaction — which is why its address is deterministic (see the comment next to
+# EVM_ANCHOR_CONTRACT_ADDRESS in .env.example). It exits 0 after deploying; the app and
+# worker wait for that before starting. If `chain` ever loses its state independently
+# (e.g. a crash + auto-restart) without `contracts` re-running, redeploy by hand with
+# `pnpm contracts:deploy:anvil` or `docker compose up --force-recreate contracts`.
 
 name: okf-anchor
 
@@ -46,7 +58,6 @@ services:
 
   ipfs:
     image: ipfs/kubo:v0.32.1
-    profiles: ["ipfs"]
     restart: unless-stopped
     environment:
       IPFS_PROFILE: server
@@ -67,7 +78,6 @@ services:
 
   chain:
     image: ghcr.io/foundry-rs/foundry:v1.0.0
-    profiles: ["chain"]
     restart: unless-stopped
     entrypoint: ["anvil"]
     command: ["--host", "0.0.0.0", "--chain-id", "31337", "--block-time", "1"]
@@ -81,11 +91,45 @@ services:
       timeout: 5s
       retries: 20
 
+  # One-shot: applies Prisma migrations to `postgres` (a fresh DB has no tables at all).
+  # Reuses the already-built app image instead of a separate one, so this never falls
+  # out of sync with what the app was actually compiled against.
+  migrate:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runner
+    restart: "no"
+    entrypoint: ["sh", "/app/packages/db/node_modules/.bin/prisma"]
+    command: ["migrate", "deploy", "--schema", "packages/db/prisma/schema.prisma"]
+    environment:
+      DATABASE_URL: postgresql://okf:okf_local_dev@postgres:5432/okf_anchor
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # One-shot: deploys OKFAnchor to `chain` as the deployer's first-ever tx, so it always
+  # lands at the same address (see EVM_ANCHOR_CONTRACT_ADDRESS in .env.example). Exits 0
+  # and stays stopped; `app`/`worker` wait for that exit before starting.
+  contracts:
+    image: ghcr.io/foundry-rs/foundry:v1.0.0
+    restart: "no"
+    working_dir: /contracts
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - "forge script script/DeployOKFAnchor.s.sol --rpc-url http://chain:8545 --broadcast"
+    env_file:
+      - .env
+    volumes:
+      - ./contracts:/contracts
+    depends_on:
+      chain:
+        condition: service_healthy
+
   app:
     build:
       context: .
       dockerfile: Dockerfile
-    profiles: ["app"]
     restart: unless-stopped
     env_file:
       - .env
@@ -96,6 +140,10 @@ services:
       # host-side .env sets IPFS_API_URL to (which is typically the host-mapped
       # 127.0.0.1:55001, unreachable from inside this container).
       IPFS_API_URL: http://ipfs:5001
+      # In-cluster Anvil hostname — same reasoning as IPFS_API_URL above (a
+      # host-side .env typically sets EVM_RPC_URL to the host-mapped
+      # 127.0.0.1:58545, unreachable from inside this container).
+      EVM_RPC_URL: http://chain:8545
     ports:
       # Web app reachable at http://localhost:3002
       - "3002:3000"
@@ -104,13 +152,18 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      ipfs:
+        condition: service_healthy
+      contracts:
+        condition: service_completed_successfully
+      migrate:
+        condition: service_completed_successfully
 
   worker:
     build:
       context: .
       dockerfile: Dockerfile
       target: runner
-    profiles: ["app"]
     restart: unless-stopped
     command: ["node", "workers/dist/main.js"]
     env_file:
@@ -122,11 +175,21 @@ services:
       # host-side .env sets IPFS_API_URL to (which is typically the host-mapped
       # 127.0.0.1:55001, unreachable from inside this container).
       IPFS_API_URL: http://ipfs:5001
+      # In-cluster Anvil hostname — same reasoning as IPFS_API_URL above (a
+      # host-side .env typically sets EVM_RPC_URL to the host-mapped
+      # 127.0.0.1:58545, unreachable from inside this container).
+      EVM_RPC_URL: http://chain:8545
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
+      ipfs:
+        condition: service_healthy
+      contracts:
+        condition: service_completed_successfully
+      migrate:
+        condition: service_completed_successfully
 
 volumes:
   postgres-data:

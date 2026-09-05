@@ -24,7 +24,8 @@
     "kubo-rpc-client": "7.1.0",
     "n3": "^1.21.3",
     "oxigraph": "^0.4.9",
-    "sparqljs": "^3.7.3"
+    "sparqljs": "^3.7.3",
+    "viem": "2.56.0"
   },
   "devDependencies": {
     "@types/n3": "^1.21.1",
