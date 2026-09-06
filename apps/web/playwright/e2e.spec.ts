@@ -138,7 +138,23 @@ test.describe("OKF Anchor end-to-end", () => {
     const firstBlock = page.getByRole("button", { name: /^Block \d/ }).first();
     if (await firstBlock.count()) {
       await firstBlock.click();
-      await expect(page.getByRole("region", { name: /Block \d+ detail/ })).toBeVisible();
+      const detail = page.getByRole("region", { name: /Block \d+ detail/ });
+      await expect(detail).toBeVisible();
+
+      // A block that carries an anchor shows the IPFS content in full: the
+      // complete (untruncated) bundle CID and a download link to verify it.
+      const cid = detail.getByTestId("ipfs-cid").first();
+      if (await cid.count()) {
+        await expect(cid).toBeVisible();
+        const cidText = (await cid.textContent())?.trim() ?? "";
+        expect(cidText).not.toContain("…");
+        expect(cidText.length).toBeGreaterThan(20);
+        await expect(
+          detail.getByRole("link", { name: /Download bundle from IPFS/ }).first().or(
+            detail.getByText(/No public IPFS gateway configured|local dev storage/).first(),
+          ),
+        ).toBeVisible();
+      }
     }
 
     const results = await new AxeBuilder({ page }).analyze();

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { looksLikeIpfsCid, relativeTime, truncateHex } from "./format";
+import { ipfsGatewayHref, looksLikeIpfsCid, relativeTime, truncateHex } from "./format";
 
 describe("truncateHex", () => {
   it("shortens a long hex value to lead…tail", () => {
@@ -33,5 +33,20 @@ describe("looksLikeIpfsCid", () => {
 
   it("rejects the local offline storage provider's CID format", () => {
     expect(looksLikeIpfsCid("okf1:" + "a".repeat(64))).toBe(false);
+  });
+});
+
+describe("ipfsGatewayHref", () => {
+  const cid = "bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi";
+
+  it("builds a /ipfs/<cid> URL and collapses trailing slashes on the gateway", () => {
+    expect(ipfsGatewayHref("https://ipfs.io", cid)).toBe(`https://ipfs.io/ipfs/${cid}`);
+    expect(ipfsGatewayHref("https://ipfs.io///", cid)).toBe(`https://ipfs.io/ipfs/${cid}`);
+  });
+
+  it("returns null with no gateway or for a non-IPFS (local okf1:) CID", () => {
+    expect(ipfsGatewayHref(null, cid)).toBeNull();
+    expect(ipfsGatewayHref(undefined, cid)).toBeNull();
+    expect(ipfsGatewayHref("https://ipfs.io", "okf1:" + "a".repeat(64))).toBeNull();
   });
 });

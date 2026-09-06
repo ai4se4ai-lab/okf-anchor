@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { EvmAnchorEventSummary, EvmBlockSummary } from "@okf-anchor/providers";
 import { AnchorRow } from "./anchor-row";
-import { relativeTime, truncateHex } from "./format";
+import { looksLikeIpfsCid, relativeTime, truncateHex } from "./format";
 
 function gasPct(b: EvmBlockSummary): number {
   return b.gasLimit > 0 ? Math.min(100, (b.gasUsed / b.gasLimit) * 100) : 0;
@@ -84,7 +84,9 @@ export function BlockChain({
         <div ref={stripRef} className="flex items-stretch overflow-x-auto pb-2" role="list" aria-label="Recent blocks, oldest to newest">
           {ordered.map((b, i) => {
             const pct = gasPct(b);
-            const anchorCount = anchorsByBlock.get(b.number)?.length ?? 0;
+            const blockAnchors = anchorsByBlock.get(b.number) ?? [];
+            const anchorCount = blockAnchors.length;
+            const ipfsCount = blockAnchors.filter((a) => looksLikeIpfsCid(a.bundleCid)).length;
             const isSelected = selected === b.number;
             return (
               <div key={b.number} className="flex items-stretch" role="listitem">
@@ -95,7 +97,7 @@ export function BlockChain({
                   aria-pressed={isSelected}
                   aria-label={`Block ${b.number}, ${b.transactionCount} transactions, gas ${pct.toFixed(0)} percent${
                     anchorCount ? `, ${anchorCount} anchor commitment${anchorCount > 1 ? "s" : ""}` : ""
-                  }`}
+                  }${ipfsCount ? `, ${ipfsCount} IPFS bundle${ipfsCount > 1 ? "s" : ""}` : ""}`}
                   className={`flex w-32 shrink-0 flex-col gap-1 rounded-lg border p-2 text-left transition-colors ${
                     isSelected
                       ? "border-slate-900 bg-slate-50 dark:border-slate-100 dark:bg-slate-800"
@@ -122,6 +124,14 @@ export function BlockChain({
                       style={{ background: "var(--viz-series-3-soft)", color: "var(--viz-series-3)" }}
                     >
                       ⚓ {anchorCount} anchor{anchorCount > 1 ? "s" : ""}
+                    </span>
+                  )}
+                  {ipfsCount > 0 && (
+                    <span
+                      className="inline-flex w-fit items-center rounded-full px-1.5 py-0.5 text-[10px] font-medium"
+                      style={{ background: "var(--viz-series-1-soft)", color: "var(--viz-series-1)" }}
+                    >
+                      📦 {ipfsCount} IPFS
                     </span>
                   )}
                 </button>
@@ -193,7 +203,8 @@ export function BlockChain({
           {selectedAnchors.length > 0 && (
             <div className="mt-3">
               <p className="mb-1 text-xs font-medium text-slate-500">
-                Anchor commitments in this block ({selectedAnchors.length})
+                Anchored bundles in this block ({selectedAnchors.length}) — on-chain commitment plus the full IPFS
+                CID and download link for each
               </p>
               <ul className="divide-y divide-slate-100 dark:divide-slate-800">
                 {selectedAnchors.map((a) => (
