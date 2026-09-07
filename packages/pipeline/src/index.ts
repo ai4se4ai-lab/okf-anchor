@@ -10,6 +10,14 @@ export {
   type ExtractLimits,
 } from "./archive.js";
 export {
+  makeEmitter,
+  type PipelineEvent,
+  type PipelineEventLevel,
+  type PipelineEventLayer,
+  type PipelineEventDetail,
+  type PipelineEventSink,
+} from "./events.js";
+export {
   publishBundle,
   type PublishInput,
   type PublishContext,

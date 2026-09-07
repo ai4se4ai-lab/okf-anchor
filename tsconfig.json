@@ -1,6 +1,8 @@
 {
   "files": [],
   "references": [
+    { "path": "packages/logger" },
+    { "path": "packages/activity" },
     { "path": "packages/okf-core" },
     { "path": "packages/providers" },
     { "path": "packages/db" },

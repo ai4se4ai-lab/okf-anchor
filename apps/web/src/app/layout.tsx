@@ -1,6 +1,9 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import "./globals.css";
+import { ThemeProvider } from "@/components/theme/theme-provider";
+import { ThemeToggle } from "@/components/theme/theme-toggle";
+import { themeInitScript } from "@/components/theme/theme";
 
 export const metadata: Metadata = {
   title: "OKF Anchor",
@@ -10,6 +13,7 @@ export const metadata: Metadata = {
 
 const NAV = [
   { href: "/dashboard", label: "Dashboard" },
+  { href: "/chain", label: "Live chain" },
   { href: "/assets", label: "Assets" },
   { href: "/mint", label: "Mint" },
   { href: "/verify", label: "Verify" },
@@ -19,26 +23,35 @@ const NAV = [
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
+      <head>
+        {/* Runs before first paint so the stored light/dark/system choice is
+            applied with no flash of the wrong theme. Static string constant —
+            no user input is interpolated. */}
+        <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
+      </head>
       <body>
-        <div className="mx-auto flex min-h-screen max-w-6xl flex-col px-4">
-          <header className="flex flex-wrap items-center gap-x-6 gap-y-2 border-b border-slate-200 py-4 dark:border-slate-800">
-            <Link href="/dashboard" className="text-lg font-semibold">
-              OKF&nbsp;Anchor
-            </Link>
-            <nav className="flex flex-wrap gap-4 text-sm">
-              {NAV.map((n) => (
-                <Link key={n.href} href={n.href} className="text-slate-600 hover:text-slate-900 dark:text-slate-500 dark:hover:text-slate-100">
-                  {n.label}
-                </Link>
-              ))}
-            </nav>
-          </header>
-          <main className="flex-1 py-6">{children}</main>
-          <footer className="border-t border-slate-200 py-4 text-xs text-slate-500 dark:border-slate-800">
-            The blockchain is a trust and integrity anchor only — the OKF bundle remains authoritative.
-          </footer>
-        </div>
+        <ThemeProvider>
+          <div className="mx-auto flex min-h-screen max-w-6xl flex-col px-4">
+            <header className="flex flex-wrap items-center gap-x-6 gap-y-2 border-b border-slate-200 py-4 dark:border-slate-800">
+              <Link href="/dashboard" className="text-lg font-semibold">
+                OKF&nbsp;Anchor
+              </Link>
+              <nav className="flex flex-wrap gap-4 text-sm">
+                {NAV.map((n) => (
+                  <Link key={n.href} href={n.href} className="text-slate-600 hover:text-slate-900 dark:text-slate-500 dark:hover:text-slate-100">
+                    {n.label}
+                  </Link>
+                ))}
+              </nav>
+              <ThemeToggle />
+            </header>
+            <main className="flex-1 py-6">{children}</main>
+            <footer className="border-t border-slate-200 py-4 text-xs text-slate-500 dark:border-slate-800">
+              The blockchain is a trust and integrity anchor only — the OKF bundle remains authoritative.
+            </footer>
+          </div>
+        </ThemeProvider>
       </body>
     </html>
   );

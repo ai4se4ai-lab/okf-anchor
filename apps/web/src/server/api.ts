@@ -4,6 +4,10 @@
  */
 import { NextResponse } from "next/server";
 import { OkfError } from "@okf-anchor/okf-core";
+import { createLogger } from "@okf-anchor/logger";
+import type { RetrievedBundle } from "./assets";
+
+const log = createLogger("api");
 
 export interface ApiErrorBody {
   error: { code: string; message: string; details?: string[] };
@@ -29,7 +33,7 @@ export function fromOkfError(err: unknown): NextResponse<ApiErrorBody> {
   if (err instanceof Error && /not_?found|no record/i.test(err.message)) {
     return apiError("NOT_FOUND", "resource not found", 404);
   }
-  console.error("[api] unhandled error", err);
+  log.error("unhandled error", { err });
   return apiError("INTERNAL", "an unexpected error occurred", 500);
 }
 
@@ -57,4 +61,20 @@ export async function readArchive(req: Request): Promise<{ bytes: Uint8Array; fi
   }
   const filename = req.headers.get("x-okf-filename") ?? undefined;
   return filename ? { bytes: buf, filename } : { bytes: buf };
+}
+
+/** Serve a bundle retrieved through OKF Anchor (never a raw storage-provider URL). */
+export function bundleResponse(bundle: RetrievedBundle): NextResponse {
+  return new NextResponse(Buffer.from(bundle.bytes), {
+    status: 200,
+    headers: {
+      "content-type": bundle.mediaType,
+      "content-disposition": `attachment; filename="${bundle.filename.replace(/["\\]/g, "_")}"`,
+      "content-length": String(bundle.bytes.byteLength),
+      "x-okf-cid": bundle.cid,
+      "x-okf-storage-provider": bundle.storageProvider,
+      "x-okf-version-number": String(bundle.versionNumber),
+      "cache-control": "public, max-age=31536000, immutable",
+    },
+  });
 }

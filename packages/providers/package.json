@@ -5,20 +5,27 @@
   "type": "module",
   "description": "Provider interfaces (StorageProvider, AnchorProvider, GraphProvider, Signer) and their offline local implementations. Application code depends on the interface, never a vendor SDK (CLAUDE.md §5).",
   "exports": {
-    ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" }
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
   },
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsc -b",
     "test": "vitest run"
   },
   "dependencies": {
     "@okf-anchor/okf-core": "workspace:*",
+    "kubo-rpc-client": "7.1.0",
     "n3": "^1.21.3",
     "oxigraph": "^0.4.9",
-    "sparqljs": "^3.7.3"
+    "sparqljs": "^3.7.3",
+    "viem": "2.56.0"
   },
   "devDependencies": {
     "@types/n3": "^1.21.1",

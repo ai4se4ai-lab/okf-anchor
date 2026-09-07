@@ -229,6 +229,42 @@ async function main(): Promise<void> {
       return;
     }
 
+    case "storage": {
+      const sub = rest[0];
+      const id = rest[1];
+      if (sub === "status") {
+        if (!id) die("usage: okf storage status <assetId>");
+        const res = await fetch(new URL(`/api/public/assets/${id}`, cfg.url));
+        if (!res.ok) die(`storage status failed: ${res.status}`);
+        const a = (await res.json()) as {
+          currentVersion?: { storageProvider?: string; storageCids?: Record<string, string> } | null;
+        };
+        const v = a.currentVersion;
+        process.stdout.write(
+          `Storage Provider: ${v?.storageProvider ?? "unknown"}\n` +
+            `Source CID:     ${v?.storageCids?.["SOURCE_ARCHIVE"] ?? "—"}\n` +
+            `Canonical CID:  ${v?.storageCids?.["CANONICAL_BUNDLE"] ?? "—"}\n` +
+            `Manifest CID:   ${v?.storageCids?.["MANIFEST"] ?? "—"}\n` +
+            `Graph CID:      ${v?.storageCids?.["GRAPH_NQUADS"] ?? "—"}\n`,
+        );
+        return;
+      }
+      if (sub === "retrieve") {
+        if (!id) die("usage: okf storage retrieve <assetId> [--out <path>] [--version <n>]");
+        const version = arg(["--version"], rest);
+        const out = arg(["--out", "-o"], rest) ?? `${id}.bundle`;
+        const u = new URL(`/api/public/assets/${id}/bundle`, cfg.url);
+        if (version) u.searchParams.set("version", version);
+        const res = await fetch(u);
+        if (!res.ok) die(`retrieve failed: ${res.status}`);
+        writeFileSync(out, Buffer.from(await res.arrayBuffer()));
+        process.stdout.write(`saved ${out} (${res.headers.get("x-okf-storage-provider") ?? "?"} / ${res.headers.get("x-okf-cid") ?? "?"})\n`);
+        return;
+      }
+      die("usage: okf storage <status|retrieve> <assetId>");
+      return;
+    }
+
     case "query": {
       const sparql = rest.find((a) => !a.startsWith("--")) ?? die("usage: okf query '<SPARQL>' [--asset <id>]");
       const asset = arg(["--asset"], rest);
@@ -251,6 +287,8 @@ async function main(): Promise<void> {
           "  publish --from-mindportalix <url> [--filter usable] [--wait]\n" +
           "  status <jobId>\n" +
           "  verify <assetId> [<dir|archive>]\n" +
+          "  storage status <assetId>              provider + CIDs for the current version\n" +
+          "  storage retrieve <assetId> [--out f] [--version n]\n" +
           "  query '<SPARQL>' [--asset <assetVersionId>]\n",
       );
       process.exit(cmd ? 1 : 0);

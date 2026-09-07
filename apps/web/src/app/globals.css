@@ -29,3 +29,30 @@ body {
 .check-fail {
   @apply text-rose-700 dark:text-rose-400;
 }
+
+/* Chart tokens (dataviz skill reference palette, subset) — scoped to .viz so
+   the rest of the app stays on the plain slate chrome; only data marks get a
+   hue. Dark step is the same validated palette, not a separate one. */
+.viz {
+  --viz-text-secondary: #52514e;
+  --viz-muted: #898781;
+  --viz-grid: #e1e0d9;
+  --viz-baseline: #c3c2b7;
+  --viz-series-1: #2a78d6;
+  --viz-series-1-soft: #cde2fb;
+  --viz-series-3: #1baf7a;
+  --viz-series-3-soft: #b6ead8;
+}
+/* The theme toggle (ThemeProvider) is authoritative: a blocking pre-paint
+   script adds `.dark` to <html> for an explicit dark choice or for "system"
+   when the OS prefers dark, so the chart tokens only need to key off it. */
+.dark .viz {
+  --viz-text-secondary: #c3c2b7;
+  --viz-muted: #898781;
+  --viz-grid: #2c2c2a;
+  --viz-baseline: #383835;
+  --viz-series-1: #3987e5;
+  --viz-series-1-soft: #184f95;
+  --viz-series-3: #199e70;
+  --viz-series-3-soft: #0d3524;
+}

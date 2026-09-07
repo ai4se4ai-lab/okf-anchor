@@ -10,9 +10,10 @@ import {
   type Commitment,
   type ProcessedBundle,
 } from "@okf-anchor/okf-core";
-import type { Providers } from "@okf-anchor/providers";
+import { assetIdToBytes32, type Providers } from "@okf-anchor/providers";
 import type { PrismaClient, Prisma } from "@okf-anchor/db";
 import { detectMediaType, extractArchive } from "./archive.js";
+import { makeEmitter, type PipelineEventSink } from "./events.js";
 
 const enc = new TextEncoder();
 
@@ -43,6 +44,8 @@ export interface PublishContext {
   readonly publicBaseUrl?: string | undefined;
   /** Optional progress hook for the async worker to advance the MintJob state. */
   readonly onStage?: ((stage: PublishStage) => Promise<void> | void) | undefined;
+  /** Optional structured event stream for the live activity console (best-effort). */
+  readonly onEvent?: PipelineEventSink | undefined;
 }
 
 export interface PublishResult {
@@ -86,10 +89,19 @@ export async function publishBundle(input: PublishInput, ctx: PublishContext): P
   const stage = async (s: PublishStage): Promise<void> => {
     await ctx.onStage?.(s);
   };
+  const emit = makeEmitter(ctx.onEvent);
 
   await stage("VALIDATING");
   const mediaType = detectMediaType(input.originalFilename, input.archive);
+  await emit(
+    "validate",
+    "info",
+    `received ${input.archive.byteLength} byte ${mediaType} archive`,
+    { mediaType, bytes: input.archive.byteLength },
+    "okf",
+  );
   const entries = extractArchive(input.archive, mediaType);
+  await emit("validate", "info", `archive expanded to ${entries.length} file(s)`, { files: entries.length }, "okf");
   await stage("CANONICALIZING");
   const processed = await processBundle(entries, {
     createdAt: new Date().toISOString(),
@@ -97,6 +109,28 @@ export async function publishBundle(input: PublishInput, ctx: PublishContext): P
   await stage("GRAPHING");
 
   const canonicalHash = processed.canonical.canonicalHash;
+  await emit(
+    "canonicalize",
+    "success",
+    `canonicalized ${processed.canonical.files.length} file(s) → ${canonicalHash.slice(0, 16)}…`,
+    {
+      fileCount: processed.canonical.files.length,
+      okfVersion: processed.canonical.okfVersion,
+      conformant: processed.validation.conformant,
+      infoFindings: processed.validation.info.length,
+      canonicalHash,
+      merkleRoot: processed.canonical.merkleRoot,
+      canonicalBytes: enc.encode(processed.canonical.canonicalForm).byteLength,
+    },
+    "canonical",
+  );
+  await emit(
+    "graph",
+    "success",
+    `derived ${processed.graph.quads.length} RDF triple(s)`,
+    { tripleCount: processed.graph.quads.length, graphHash: processed.graph.graphHash },
+    "graph",
+  );
 
   const asset = await prisma.asset.upsert({
     where: { publisherId_slug: { publisherId: input.publisherId, slug: input.assetSlug } },
@@ -118,21 +152,43 @@ export async function publishBundle(input: PublishInput, ctx: PublishContext): P
     include: { anchor: true, storageObjects: true },
   });
   if (existing) {
+    await emit(
+      "dedup",
+      "success",
+      `identical content already published as version ${existing.versionNumber} — no new anchor`,
+      { deduplicated: true, assetId: asset.id, versionNumber: existing.versionNumber, canonicalHash },
+      "canonical",
+    );
     return toResult(existing, asset, processed, true, ctx.publicBaseUrl);
   }
 
   // Store the four layer artifacts.
   await stage("UPLOADING");
+  await emit(
+    "store",
+    "info",
+    `storing four layer artifacts via ${providers.storage.kind}`,
+    { provider: providers.storage.kind },
+    "storage",
+  );
   const manifestJson = JSON.stringify(processed.manifest.manifest);
+  const canonicalBytes = enc.encode(processed.canonical.canonicalForm).byteLength;
+  const graphBytes = enc.encode(processed.graph.nquads).byteLength;
+  const manifestBytes = enc.encode(manifestJson).byteLength;
   const [sourceCid, canonicalCid, graphCid, manifestCid] = await Promise.all([
     providers.storage.put(input.archive),
     providers.storage.put(enc.encode(processed.canonical.canonicalForm)),
     providers.storage.put(enc.encode(processed.graph.nquads)),
     providers.storage.put(enc.encode(manifestJson)),
   ]);
+  await emit("store", "info", `source archive → ${sourceCid}`, { kind: "SOURCE_ARCHIVE", cid: sourceCid, bytes: input.archive.byteLength, provider: providers.storage.kind }, "storage");
+  await emit("store", "info", `canonical bundle → ${canonicalCid}`, { kind: "CANONICAL_BUNDLE", cid: canonicalCid, bytes: canonicalBytes, provider: providers.storage.kind }, "storage");
+  await emit("store", "info", `graph n-quads → ${graphCid}`, { kind: "GRAPH_NQUADS", cid: graphCid, bytes: graphBytes, provider: providers.storage.kind }, "storage");
+  await emit("store", "info", `manifest → ${manifestCid}`, { kind: "MANIFEST", cid: manifestCid, bytes: manifestBytes, provider: providers.storage.kind }, "storage");
   await Promise.all(
     [sourceCid, canonicalCid, graphCid, manifestCid].map((c) => providers.storage.pin(c)),
   );
+  await emit("store", "success", `pinned 4 objects on ${providers.storage.kind}`, { pinned: 4, provider: providers.storage.kind }, "storage");
 
   const agg = await prisma.assetVersion.aggregate({
     where: { assetId: asset.id },
@@ -153,11 +209,56 @@ export async function publishBundle(input: PublishInput, ctx: PublishContext): P
   };
   const cHash = commitmentHash(commitment);
   await stage("SIGNING");
+  await emit("sign", "info", "signing commitment (Ed25519)", { algo: "ed25519", commitmentHash: cHash }, "signer");
   const signature = await providers.signer.sign(enc.encode(cHash));
+  await emit(
+    "sign",
+    "success",
+    `commitment signed by ${signature.publicKeyHex.slice(0, 16)}…`,
+    { algo: "ed25519", publicKeyHex: signature.publicKeyHex },
+    "signer",
+  );
   await stage("SUBMITTING");
+  await emit(
+    "anchor-submit",
+    "info",
+    `submitting anchor via ${providers.anchor.kind} (${providers.anchor.network})`,
+    {
+      provider: providers.anchor.kind,
+      network: providers.anchor.network,
+      assetIdHash: assetIdToBytes32(asset.id),
+      version: versionNumber,
+      commitmentHash: cHash,
+      bundleCid: sourceCid,
+    },
+    "anchor",
+  );
   const anchorRef = await providers.anchor.anchor(commitment);
+  await emit(
+    "anchor-submit",
+    "success",
+    `anchor accepted — ref ${anchorRef.ref}`,
+    { provider: anchorRef.provider, network: anchorRef.network, ref: anchorRef.ref },
+    "anchor",
+  );
   await stage("CONFIRMING");
   const anchorStatus = await providers.anchor.status(anchorRef);
+  await emit(
+    "anchor-confirm",
+    anchorStatus.state === "failed" ? "error" : "success",
+    `anchor ${anchorStatus.state} — ${anchorStatus.confirmations} confirmation(s)` +
+      (anchorStatus.blockNumber != null ? ` in block ${anchorStatus.blockNumber}` : ""),
+    {
+      state: anchorStatus.state,
+      confirmations: anchorStatus.confirmations,
+      blockNumber: anchorStatus.blockNumber ?? null,
+      committedHash: anchorStatus.committedHash,
+      gasUsed: anchorStatus.gasUsed ?? null,
+      effectiveGasPriceWei: anchorStatus.effectiveGasPriceWei ?? null,
+      transactionHash: anchorStatus.transactionHash ?? anchorRef.ref,
+    },
+    "anchor",
+  );
 
   let created;
   try {
@@ -254,12 +355,34 @@ export async function publishBundle(input: PublishInput, ctx: PublishContext): P
         where: { assetId_canonicalHash: { assetId: asset.id, canonicalHash } },
         include: { anchor: true, storageObjects: true },
       });
+      await emit(
+        "dedup",
+        "success",
+        `concurrent publish won the race — resolved to version ${winner.versionNumber}`,
+        { deduplicated: true, assetId: asset.id, versionNumber: winner.versionNumber, canonicalHash },
+        "canonical",
+      );
       return toResult(winner, asset, processed, true, ctx.publicBaseUrl);
     }
     throw err;
   }
 
+  await emit(
+    "persist",
+    "success",
+    `version ${created.versionNumber} committed to the metadata store`,
+    { assetId: asset.id, assetVersionId: created.id, versionNumber: created.versionNumber, deduplicated: false },
+    "okf",
+  );
+
   await providers.graph.upsert(created.id, processed.graph.nquads);
+  await emit(
+    "graph",
+    "success",
+    "knowledge graph upserted to the triplestore",
+    { assetVersionId: created.id, tripleCount: processed.graph.quads.length },
+    "graph",
+  );
 
   return toResult(created, asset, processed, false, ctx.publicBaseUrl);
 }
