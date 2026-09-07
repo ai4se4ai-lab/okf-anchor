@@ -13,12 +13,16 @@
 # `STORAGE_PROVIDER=local`/`ANCHOR_PROVIDER=local` still works with no external network;
 # the ipfs/chain/contracts services just sit there unused in that case.
 #
-# `contracts` deploys OKFAnchor to `chain` once it's healthy, as the deployer's very
-# first transaction — which is why its address is deterministic (see the comment next to
-# EVM_ANCHOR_CONTRACT_ADDRESS in .env.example). It exits 0 after deploying; the app and
-# worker wait for that before starting. If `chain` ever loses its state independently
-# (e.g. a crash + auto-restart) without `contracts` re-running, redeploy by hand with
-# `pnpm contracts:deploy:anvil` or `docker compose up --force-recreate contracts`.
+# `chain` (Anvil) persists its state to the chain-data volume (--state), so blocks,
+# the deployed OKFAnchor, and every Anchored event survive a restart — matching
+# postgres/redis/ipfs. `contracts` deploys OKFAnchor as the deployer's very first
+# transaction (deterministic address — see EVM_ANCHOR_CONTRACT_ADDRESS in
+# .env.example) but is now idempotent: it skips the deploy when bytecode already
+# exists at that address, so a persisted chain is never double-deployed. It exits 0;
+# the app and worker wait for that before starting. To start the chain over from
+# genesis: `docker compose down` then `docker volume rm okf-anchor_chain-data`
+# (drop okf-anchor_postgres-data too, or the DB will hold Anchor rows pointing at
+# blocks the fresh chain no longer has).
 
 name: okf-anchor
 
@@ -62,12 +66,16 @@ services:
     environment:
       IPFS_PROFILE: server
     ports:
-      # Bound to loopback only: the RPC API (5001) has full admin capabilities
-      # and must never reach the public Internet. The app talks to it over the
-      # compose network as http://ipfs:5001, not through this host mapping —
-      # this is for host-side dev tooling only.
-      - "127.0.0.1:55001:5001" # API
-      - "127.0.0.1:58080:8080" # gateway (read-only retrieval; still loopback-only in dev)
+      # Bind host is configurable per endpoint (see IPFS_*_BIND in .env.example).
+      # Default 127.0.0.1 — the RPC API (5001) has full admin capabilities
+      # (add/remove pins, rewrite config, read keys, stop the node) and must
+      # never reach the public Internet; keep it loopback-only unless you are on
+      # a trusted LAN and something off-host genuinely needs RPC. The gateway
+      # (8080) is read-only content retrieval — safe to widen to the LAN so other
+      # machines / Docker stacks can fetch by CID. The app itself always talks to
+      # Kubo over the compose network as http://ipfs:5001, not via these mappings.
+      - "${IPFS_API_BIND:-127.0.0.1}:55001:5001" # API
+      - "${IPFS_GATEWAY_BIND:-127.0.0.1}:58080:8080" # gateway
     volumes:
       - ipfs-data:/data/ipfs
     healthcheck:
@@ -79,12 +87,32 @@ services:
   chain:
     image: ghcr.io/foundry-rs/foundry:v1.0.0
     restart: unless-stopped
+    # anvil's default user (foundry, uid 1000) can't write to the root-owned
+    # chain-data volume mountpoint, so --state below would silently never dump.
+    user: "0:0"
     entrypoint: ["anvil"]
     # No --block-time: Anvil's default (mine one block per transaction, instantly)
     # is all EVM_CONFIRMATIONS=1 (the only supported value today — .env.example,
     # docs/evm-anchor.md) needs, and a fixed interval logs a full block report every
     # tick forever, drowning out every other service's logs in `docker compose up`.
-    command: ["--host", "0.0.0.0", "--chain-id", "31337"]
+    #
+    # --state persists the whole chain (blocks + the deployed OKFAnchor + every
+    # Anchored event) to the chain-data volume, loaded back on the next start and
+    # re-dumped on graceful shutdown / every --state-interval seconds. Without it
+    # a restart wiped the chain to genesis while Postgres kept its AssetVersion /
+    # Anchor rows — so re-submitted bundles hit the canonical-hash idempotency
+    # short-circuit, never re-anchored, and the live-chain page showed nothing.
+    command:
+      - "--host"
+      - "0.0.0.0"
+      - "--chain-id"
+      - "31337"
+      - "--state"
+      - "/state/anvil-state.json"
+      - "--state-interval"
+      - "10"
+    volumes:
+      - chain-data:/state
     ports:
       - "58545:8545"
     healthcheck:
@@ -115,13 +143,21 @@ services:
   # One-shot: deploys OKFAnchor to `chain` as the deployer's first-ever tx, so it always
   # lands at the same address (see EVM_ANCHOR_CONTRACT_ADDRESS in .env.example). Exits 0
   # and stays stopped; `app`/`worker` wait for that exit before starting.
+  #
+  # Idempotent: now that `chain` persists its state (chain-data volume), a later
+  # `up` / `--force-recreate` would otherwise redeploy on top of the existing
+  # chain and shift the address (nonce no longer 0). Skip the deploy when bytecode
+  # already exists at the expected address.
   contracts:
     image: ghcr.io/foundry-rs/foundry:v1.0.0
     restart: "no"
     working_dir: /contracts
     entrypoint: ["/bin/sh", "-c"]
     command:
-      - "forge script script/DeployOKFAnchor.s.sol --rpc-url http://chain:8545 --broadcast"
+      - >-
+        if [ "$$(cast code $$EVM_ANCHOR_CONTRACT_ADDRESS --rpc-url http://chain:8545 2>/dev/null)" != "0x" ] && [ -n "$$(cast code $$EVM_ANCHOR_CONTRACT_ADDRESS --rpc-url http://chain:8545 2>/dev/null)" ];
+        then echo "OKFAnchor already deployed at $$EVM_ANCHOR_CONTRACT_ADDRESS - skipping deploy";
+        else forge script script/DeployOKFAnchor.s.sol --rpc-url http://chain:8545 --broadcast; fi
     env_file:
       - .env
     volumes:
@@ -206,3 +242,4 @@ volumes:
   postgres-data:
   redis-data:
   ipfs-data:
+  chain-data:

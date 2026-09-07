@@ -24,6 +24,12 @@ from stored content, and compare it to the anchor** — trusting no part of this
 
 ## Quickstart
 
+For a clean run:
+```bash
+docker compose down
+docker volume rm okf-anchor_chain-data okf-anchor_postgres-data
+docker compose up -d --build
+```
 ```bash
 pnpm install
 docker compose up -d                       # Postgres + Redis (offset host ports 55432 / 56379)

@@ -4,6 +4,38 @@ import { useState } from "react";
 import { ipfsGatewayHref, looksLikeIpfsCid } from "./format";
 
 /**
+ * Copy `text`, returning whether it landed. `navigator.clipboard` only exists in
+ * a secure context (HTTPS or localhost); when the app is opened over plain HTTP
+ * from another machine (http://<lan-ip>:3000) it is `undefined`, so fall back to
+ * the legacy `execCommand("copy")` off a hidden textarea.
+ */
+async function writeToClipboard(text: string): Promise<boolean> {
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch {
+    // fall through to the legacy path
+  }
+  try {
+    const el = document.createElement("textarea");
+    el.value = text;
+    el.setAttribute("readonly", "");
+    el.style.position = "fixed";
+    el.style.top = "0";
+    el.style.opacity = "0";
+    document.body.appendChild(el);
+    el.select();
+    const ok = document.execCommand("copy");
+    document.body.removeChild(el);
+    return ok;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * The IPFS content behind one anchor, shown in full: the complete bundle CID
  * (never truncated — it is what you verify against), a gateway download link,
  * the raw gateway URL, and the `ipfs get` equivalent. A CID is a content hash,
@@ -26,13 +58,11 @@ export function IpfsBundleLink({
   const resolvable = looksLikeIpfsCid(cid);
 
   async function copyCid() {
-    try {
-      await navigator.clipboard.writeText(cid);
+    if (await writeToClipboard(cid)) {
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
-    } catch {
-      // Clipboard blocked (e.g. insecure context) — the CID is select-all inline anyway.
     }
+    // If both paths fail the CID is still select-all inline — nothing else to do.
   }
 
   return (
